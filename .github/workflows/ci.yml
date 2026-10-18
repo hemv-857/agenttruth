@@ -14,7 +14,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm ci
+      # No lockfile: the package has zero runtime and dev dependencies.
       - run: npm test
       # dogfood: agenttruth must pass on its own README
       - run: node bin/agenttruth.js --dir .
