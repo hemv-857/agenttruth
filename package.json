@@ -1,0 +1,16 @@
+{
+  "name": "agenttruth",
+  "version": "0.1.0",
+  "description": "CI check that fails when CLAUDE.md / AGENTS.md / README no longer match the code they describe",
+  "type": "module",
+  "bin": { "agenttruth": "bin/agenttruth.js" },
+  "files": ["bin", "src", "action", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dogfood": "node bin/agenttruth.js --dir ../agent-office-app"
+  },
+  "keywords": ["ai", "agents", "claude", "llm", "documentation", "drift", "ci", "lint", "mcp"],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/hemv-857/agenttruth.git" }
+}
