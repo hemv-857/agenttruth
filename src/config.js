@@ -17,7 +17,7 @@ const DEFAULTS = {
     'GEMINI.md', '.cursorrules', '.windsurfrules',
   ],
   docsDir: 'docs',
-  checks: ['numeric-claim', 'missing-file'],
+  checks: ['numeric-claim', 'missing-file', 'broken-link', 'missing-command'],
   ignore: [],
   // A claim must be within this fraction of the real counter to count as a
   // typo. 0.25 catches stale counts without flagging unrelated numbers.
@@ -29,7 +29,7 @@ function validate(cfg, source) {
     throw new Error(`${source}: "docs" must be an array of paths`);
   }
   if (cfg.checks !== undefined) {
-    const known = new Set(['numeric-claim', 'missing-file']);
+    const known = new Set(['numeric-claim', 'missing-file', 'broken-link', 'missing-command']);
     const bad = (cfg.checks ?? []).filter((c) => !known.has(c));
     if (bad.length) {
       throw new Error(

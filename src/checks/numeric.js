@@ -145,12 +145,24 @@ export function checkNumericClaims(file, text, sources, repoRoot = null) {
     if (seen.has(key)) continue;
     seen.add(key);
 
+    // Only offer an auto-fix when the intended counter is unambiguous. If the
+    // candidates disagree, refuse — a wrong rewrite is worse than stale text,
+    // because the author stops checking.
+    const distinct = [...new Set(near.map((c) => c.count))];
+    const fix =
+      distinct.length === 1
+        ? { from: m[1], to: String(distinct[0]) }
+        : null;
+
     findings.push({
       file,
       line,
       rule: 'numeric-claim',
-      message: `claims "${m[1]} ${noun}" — repo has ${[...new Set(near.map((n) => n.count))].join(', ')}`,
-      detail: `counter: ${near[0].why}`,
+      message: `claims "${m[1]} ${noun}" — repo has ${distinct.join(', ')}`,
+      detail: fix
+        ? `counter: ${near[0].why}`
+        : `ambiguous (${distinct.join(', ')}) — fix manually`,
+      fix,
     });
   }
   return { file, findings };

@@ -1,7 +1,7 @@
 {
   "name": "agenttruth",
-  "version": "0.2.0",
-  "description": "CI check that fails when CLAUDE.md / AGENTS.md / README no longer match the code they describe",
+  "version": "0.3.0",
+  "description": "CI check that fails when CLAUDE.md / AGENTS.md / README stop matching the code they describe",
   "type": "module",
   "bin": {
     "agenttruth": "bin/agenttruth.js",

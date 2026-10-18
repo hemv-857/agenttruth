@@ -4,9 +4,12 @@ import path from 'node:path';
 import process from 'node:process';
 import { checkNumericClaims } from './checks/numeric.js';
 import { checkFileReferences, buildFileIndex } from './checks/filerefs.js';
+import { checkLinks } from './checks/links.js';
+import { checkCommands } from './checks/commands.js';
 import { render } from './report.js';
 import { loadConfig } from './config.js';
 import { loadBaseline, saveBaseline, partition } from './baseline.js';
+import { planFixes, applyFixes } from './fix.js';
 
 const SKIP_DIR = new Set([
   '.git', 'node_modules', '.build', 'dist', 'target', 'vendor',
@@ -16,7 +19,7 @@ const SKIP_DIR = new Set([
 function parseArgs(argv) {
   const opts = {
     json: false, quiet: false, failOn: 'any',
-    dir: process.cwd(), updateBaseline: false, files: [],
+    dir: process.cwd(), updateBaseline: false, fix: false, files: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -25,6 +28,7 @@ function parseArgs(argv) {
     else if (a === '--dir') opts.dir = path.resolve(argv[++i]);
     else if (a === '--fail-on') opts.failOn = argv[++i];
     else if (a === '--update-baseline') opts.updateBaseline = true;
+    else if (a === '--fix') opts.fix = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (!a.startsWith('-')) opts.files.push(a);
   }
@@ -48,6 +52,8 @@ Options
 Checks
   numeric-claim   "299 checks" vs what the code actually counts
   missing-file    docs name a file that isn't in the repo
+  broken-link     a relative markdown link that resolves to nothing
+  missing-command docs run \`make test\` but there's no Makefile
 
 Config (optional)
   agenttruth.config.json  { docs, docsDir, checks, ignore, driftTolerance }
@@ -156,12 +162,36 @@ function main() {
     if (cfg.checks.includes('missing-file')) {
       results.push(checkFileReferences(rel, text, opts.dir, fileIndex));
     }
+    if (cfg.checks.includes('broken-link')) {
+      results.push(checkLinks(rel, text, opts.dir));
+    }
+    if (cfg.checks.includes('missing-command')) {
+      results.push(checkCommands(rel, text, opts.dir, fileIndex));
+    }
   }
 
   const all = results.flatMap((r) => r.findings);
   const { fresh, known } = partition(all, baseline);
   const payload = fresh.length ? [{ file: 'drift', findings: fresh }] : [];
   const { text, count, findings } = render(payload, { cwd: '' });
+
+  if (opts.fix) {
+    const fixes = planFixes(findings);
+    if (fixes.length === 0) {
+      process.stdout.write('agenttruth · nothing to auto-fix (only unambiguous counts are rewritten)\n');
+      return count === 0 ? 0 : 1;
+    }
+    const applied = applyFixes(opts.dir, fixes);
+    for (const a of applied) {
+      process.stdout.write(`fixed ${a.file}:${a.line}  ${a.from} -> ${a.to}\n`);
+    }
+    const skipped = fixes.length - applied.length;
+    process.stdout.write(
+      `agenttruth · rewrote ${applied.length} claim${applied.length === 1 ? '' : 's'}` +
+        (skipped > 0 ? `, ${skipped} left for manual fix (ambiguous)\n` : '\n')
+    );
+    return 0;
+  }
 
   if (opts.updateBaseline) {
     const saved = saveBaseline(opts.dir, all);

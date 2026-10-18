@@ -9,6 +9,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { checkNumericClaims } from './checks/numeric.js';
 import { checkFileReferences, buildFileIndex } from './checks/filerefs.js';
+import { checkLinks } from './checks/links.js';
+import { checkCommands } from './checks/commands.js';
 import { loadConfig } from './config.js';
 import { loadBaseline, partition } from './baseline.js';
 
@@ -61,6 +63,12 @@ function analyze(root) {
     }
     if (cfg.checks.includes('missing-file')) {
       results.push(checkFileReferences(rel, text, root, fileIndex));
+    }
+    if (cfg.checks.includes('broken-link')) {
+      results.push(checkLinks(rel, text, root));
+    }
+    if (cfg.checks.includes('missing-command')) {
+      results.push(checkCommands(rel, text, root, fileIndex));
     }
   }
   return { cfg, docs, results, filesIndexed: fileIndex.size };
@@ -118,7 +126,7 @@ function handle(msg) {
       return reply({
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'agenttruth', version: '0.2.0' },
+        serverInfo: { name: 'agenttruth', version: '0.3.0' },
       });
 
     case 'tools/list':

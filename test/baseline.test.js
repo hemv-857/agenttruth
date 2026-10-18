@@ -147,3 +147,61 @@ test('config: defaults apply with no config file', () => {
 test('cli: --fail-on none never fails', () => {
   assert.equal(run(driftRepo(), ['--fail-on', 'none']).code, 0);
 });
+// ---------- --fix ----------
+
+test('fix: rewrites an unambiguous stale count', () => {
+  const dir = tmpdir({
+    'README.md': 'Covered by all 120-checks in CI, running every day.\n',
+    'test.js': SRC_100,
+  });
+  const r = run(dir, ['--fix']);
+  assert.equal(r.code, 0);
+  assert.match(r.out, /rewrote 1 claim/);
+  const readme = fs.readFileSync(path.join(dir, 'README.md'), 'utf8');
+  assert.match(readme, /all 100-checks/);
+  assert.equal(run(dir).code, 0); // now clean
+});
+
+test('fix: is idempotent', () => {
+  const dir = tmpdir({
+    'README.md': 'Covered by all 120-checks in CI, running every day.\n',
+    'test.js': SRC_100,
+  });
+  run(dir, ['--fix']);
+  const second = run(dir, ['--fix']);
+  assert.match(second.out, /nothing to auto-fix/);
+});
+
+test('fix: refuses when the counter is ambiguous', () => {
+  // two files each hold a different number of assertions
+  const dir = tmpdir({
+    'README.md': 'Covered by all 120-checks in CI, running every day.\n',
+    'test.js': Array.from({ length: 100 }, (_, i) => `check("a${i}");`).join('\n'),
+    'other.js': Array.from({ length: 110 }, (_, i) => `check("b${i}");`).join('\n'),
+  });
+  const before = fs.readFileSync(path.join(dir, 'README.md'), 'utf8');
+  const r = run(dir, ['--fix']);
+  assert.match(r.out, /nothing to auto-fix|ambiguous/);
+  assert.equal(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), before);
+});
+
+test('fix: rewrites every occurrence on separate lines', () => {
+  const dir = tmpdir({
+    'README.md': 'Line one: all 120-checks in CI.\n\nLine two: all 120-checks again.\n',
+    'test.js': SRC_100,
+  });
+  const r = run(dir, ['--fix']);
+  assert.match(r.out, /rewrote 2 claims/);
+  const readme = fs.readFileSync(path.join(dir, 'README.md'), 'utf8');
+  assert.equal((readme.match(/100-checks/g) ?? []).length, 2);
+});
+
+test('fix: leaves missing-file findings alone', () => {
+  const dir = tmpdir({
+    'README.md': 'Edit `src/Ghost.swift` to change it.\n',
+    'src/real.swift': 'x',
+  });
+  const r = run(dir, ['--fix']);
+  assert.match(r.out, /nothing to auto-fix/);
+  assert.match(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), /Ghost\.swift/);
+});

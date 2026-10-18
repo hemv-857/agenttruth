@@ -40,15 +40,35 @@ Requires Node 18+. Zero runtime dependencies.
 
 **`numeric-claim`** — a count in your docs that the code contradicts.
 
-> README: *"covered by a 299-check behavior harness"* → repo has **267** assertions.
+> README: *"covered by a 299-check behavior harness"* → repo has **266** assertions.
 
-Counters are matched by kind, so a test count is never compared to an agent count. Only typo-sized differences are flagged (a stale count from an older commit), never unrelated numbers.
+Counters are matched by kind, so a test count is never compared to an agent count. Only typo-sized differences are flagged (a stale count from an older commit), never unrelated numbers. Helper declarations (`function check()`) are excluded.
 
 **`missing-file`** — docs name a file the repo doesn't ship.
 
 > CONTRIBUTING: *"see `e2e_mcp.rs` for the integration harness"* → file does not exist.
 
 It stays quiet on the things that aren't drift: badge URLs, `CLAUDE.md` files you tell people *not* to use, files a CLI command expects the user to supply (`--params @input.json`), submodule paths, and anything inside a fenced code block.
+
+**`broken-link`** — a relative markdown link that resolves to nothing.
+
+> README: *"see the [Authentication](docs/src/app/sessions/page.mdx) docs"* → file does not exist.
+
+Also catches directory links with no index and anchors with no matching heading. Absolute `http(s)` links are skipped on purpose — verifying them would make CI depend on the network.
+
+**`missing-command`** — docs tell you to run a build tool the repo doesn't have.
+
+> README: *"make test"* → no `Makefile`, `makefile`, `GNUmakefile`, `Justfile`, or `justfile`.
+
+Only counts commands in shell-fenced blocks, `$`-prefixed lines, or indented snippets. Prose like *"installation via npm is deprecated"* or *"a fix that doesn't make sense"* is never flagged.
+
+### Auto-fix
+
+```bash
+npx agenttruth --fix
+```
+
+Rewrites stale counts to the measured value. **Only unambiguous ones** — if two files claim to hold "the agent catalog" and disagree, it refuses rather than guesses, because a wrong number in a README is worse than a stale one.
 
 ## CI
 
@@ -80,7 +100,7 @@ Fix what you can, then re-baseline. Fingerprints ignore line numbers, so unrelat
 {
   "docs": ["README.md", "CLAUDE.md", "AGENTS.md"],
   "docsDir": "docs",
-  "checks": ["numeric-claim", "missing-file"],
+  "checks": ["numeric-claim", "missing-file", "broken-link", "missing-command"],
   "ignore": ["CHANGELOG.md"],
   "driftTolerance": 0.25
 }
@@ -103,12 +123,13 @@ Two tools: `check_drift` (findings with file and line) and `list_agent_docs` (wh
 --json                machine-readable output
 --fail-on <sev>       error | any | none (default: any) — exit threshold
 --update-baseline     record current findings as known
+--fix                 rewrite unambiguous stale counts to the measured value
 -q, --quiet           print only when there are findings
 ```
 
 ## Honest scope
 
-v1 does **two** checks well (`numeric-claim`, `missing-file`) and stays silent on anything it can't prove. It is tuned for low false positives over recall: on a sample of well-maintained repos it flags a handful of findings, and the ones we spot-checked are real drift. If it can't prove a file is wrong, it stays quiet.
+Four checks (`numeric-claim`, `missing-file`, `broken-link`, `missing-command`), each tuned for low false positives over recall. It stays silent on anything it can't prove. It is tuned for low false positives over recall: on a sample of well-maintained repos it flags a handful of findings, and the ones we spot-checked are real drift. If it can't prove a file is wrong, it stays quiet.
 
 ## License
 
