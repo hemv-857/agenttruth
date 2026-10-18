@@ -1,0 +1,4 @@
+{
+  "checks": ["numeric-claim", "missing-file"],
+  "ignore": []
+}

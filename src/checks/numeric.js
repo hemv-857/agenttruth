@@ -50,9 +50,14 @@ function countersFromSource(text) {
       });
     }
   }
-  for (const macro of ['check(', 'expect(', 'assert(', 'XCTAssert', 'test(', 'it(', 'describe(']) {
+for (const macro of ['check(', 'expect(', 'assert(', 'XCTAssert', 'test(', 'it(', 'describe(']) {
     const n = countMatches(text, macro);
-    if (n > 0) out.push({ count: n, group: 'test', why: `${macro}… × ${n}` });
+    // Exclude the declaration itself — `func check(` is not a passing assertion.
+    const decl = new RegExp(
+      `(?:function|def|fn|func|sub|public|private|static|const|let|var)\\s+${macro.replace(/[(]/g, '\\(')}`
+    ).test(text);
+    const count = decl ? n - 1 : n;
+    if (count > 0) out.push({ count, group: 'test', why: `${macro}… × ${count}` });
   }
   return out;
 }

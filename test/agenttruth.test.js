@@ -162,3 +162,13 @@ test('numeric-claim: does not treat a directory name as a count claim', () => {
   const doc = 'Run `shasum -a 256 test-results/<dir>/*.png`\n';
   assert.equal(checkNumericClaims('README.md', doc, [src]).findings.length, 0);
 });
+
+test('numeric-claim: excludes the helper declaration from the count', () => {
+  // 266 call sites + 1 `function check(` declaration => must report 266
+  const src =
+    'function check(a, b) {}\n' + Array.from({ length: 266 }, (_, i) => `  check(${i});`).join('\n');
+  const doc = 'Covers all 272-checks in CI today.\n';
+  const r = checkNumericClaims('README.md', doc, [src]);
+  assert.equal(r.findings.length, 1);
+  assert.match(r.findings[0].message, /266/);
+});

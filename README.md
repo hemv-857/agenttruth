@@ -62,18 +62,49 @@ Or run it directly:
 - run: npx agenttruth
 ```
 
-## Options
+### Adopting without breaking your build
 
+A repo that has been drifting for a year cannot adopt a checker that fails on day one — nobody reads 40 findings, everyone uninstalls. Baseline the existing findings, then CI fails only on **new** drift, which is the only thing anyone can act on:
+
+```bash
+npx agenttruth --update-baseline   # commit .agenttruth-baseline.json
 ```
---dir <path>     repo root (default: cwd)
---json           machine-readable output
---fail-on <sev>  error | any | none (default: any) — exit threshold
--q, --quiet      print only when there are findings
+
+Fix what you can, then re-baseline. Fingerprints ignore line numbers, so unrelated edits won't resurrect a suppressed finding.
+
+## Config (optional)
+
+`agenttruth.config.json` — every field has a working default:
+
+```json
+{
+  "docs": ["README.md", "CLAUDE.md", "AGENTS.md"],
+  "docsDir": "docs",
+  "checks": ["numeric-claim", "missing-file"],
+  "ignore": ["CHANGELOG.md"],
+  "driftTolerance": 0.25
+}
 ```
 
 ## MCP
 
-Coming soon — same checks, callable by your agent so it can verify its own instructions before a run.
+Agents can check their own instructions before a run:
+
+```json
+{ "mcpServers": { "agenttruth": { "command": "npx", "args": ["-y", "agenttruth-mcp"] } } }
+```
+
+Two tools: `check_drift` (findings with file and line) and `list_agent_docs` (what gets inspected). Zero dependencies — it speaks JSON-RPC over stdio directly.
+
+## Options
+
+```
+--dir <path>          repo root (default: cwd)
+--json                machine-readable output
+--fail-on <sev>       error | any | none (default: any) — exit threshold
+--update-baseline     record current findings as known
+-q, --quiet           print only when there are findings
+```
 
 ## Honest scope
 

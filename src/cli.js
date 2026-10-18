@@ -5,13 +5,8 @@ import process from 'node:process';
 import { checkNumericClaims } from './checks/numeric.js';
 import { checkFileReferences, buildFileIndex } from './checks/filerefs.js';
 import { render } from './report.js';
-
-const AGENT_DOCS = [
-  'README.md', 'CLAUDE.md', 'AGENTS.md', 'CONTRIBUTING.md',
-  'ARCHITECTURE.md', 'DEVELOPMENT.md', 'SETUP.md', 'QUICKSTART.md',
-  'GEMINI.md', '.cursorrules', '.windsurfrules',
-  'docs/README.md', 'docs/architecture.md',
-];
+import { loadConfig } from './config.js';
+import { loadBaseline, saveBaseline, partition } from './baseline.js';
 
 const SKIP_DIR = new Set([
   '.git', 'node_modules', '.build', 'dist', 'target', 'vendor',
@@ -19,17 +14,20 @@ const SKIP_DIR = new Set([
 ]);
 
 function parseArgs(argv) {
-  const opts = { json: false, quiet: false, failOn: 'any', dir: process.cwd() };
+  const opts = {
+    json: false, quiet: false, failOn: 'any',
+    dir: process.cwd(), updateBaseline: false, files: [],
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') opts.json = true;
     else if (a === '--quiet' || a === '-q') opts.quiet = true;
     else if (a === '--dir') opts.dir = path.resolve(argv[++i]);
     else if (a === '--fail-on') opts.failOn = argv[++i];
+    else if (a === '--update-baseline') opts.updateBaseline = true;
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (!a.startsWith('-')) opts.files.push(a);
   }
-  opts.files = opts.files || [];
   return opts;
 }
 
@@ -43,41 +41,52 @@ Options
   --dir <path>     repo root (default: cwd)
   --json           emit JSON instead of text
   --fail-on <sev>  error|any|none (default: any) — exit code threshold
+  --update-baseline  record current findings as known; CI then fails on new drift only
   -q, --quiet      only print when findings exist
   -h, --help       this text
 
 Checks
   numeric-claim   "299 checks" vs what the code actually counts
   missing-file    docs name a file that isn't in the repo
-  wrong-extension docs say App.sh, repo has App.swift
+
+Config (optional)
+  agenttruth.config.json  { docs, docsDir, checks, ignore, driftTolerance }
+
+Baseline
+  .agenttruth-baseline.json  suppresses known findings so you can adopt
+  without failing CI on drift that predates the tool
 
 Exit codes
-  0  clean
-  1  drift found (and --fail-on threshold met)
-  2  bad invocation
+  0  no new drift
+  1  new drift found
+  2  bad invocation or bad config
+
+MCP
+  agenttruth-mcp           stdio server exposing the same checks to agents
 `;
 
-function collectDocs(root, explicit) {
+function collectDocs(root, explicit, cfg) {
   if (explicit.length) {
     return explicit.map((f) => path.resolve(root, f));
   }
   const out = [];
   const seen = new Set();
-  const rel = AGENT_DOCS.map((f) => f.replace(/^\.\//, ''));
-  for (const r of rel) {
+  const ignore = new Set(cfg.ignore);
+  for (const r of cfg.docs) {
+    if (ignore.has(r)) continue;
     const full = path.join(root, r);
     if (fs.existsSync(full) && fs.statSync(full).isFile()) {
       out.push(full);
       seen.add(r);
     }
   }
-  // docs/*.md too, but only the top level of docs/
-  const docsDir = path.join(root, 'docs');
+  const docsDir = path.join(root, cfg.docsDir);
   if (fs.existsSync(docsDir)) {
     for (const e of fs.readdirSync(docsDir)) {
-      if (e.endsWith('.md') && !seen.has(`docs/${e}`)) {
-        out.push(path.join(docsDir, e));
-      }
+      if (!e.endsWith('.md')) continue;
+      const rel = `${cfg.docsDir}/${e}`;
+      if (ignore.has(rel) || seen.has(rel)) continue;
+      out.push(path.join(docsDir, e));
     }
   }
   return out;
@@ -111,8 +120,18 @@ function main() {
     return 2;
   }
 
+  let cfg;
+  let baseline;
+  try {
+    cfg = loadConfig(opts.dir);
+    baseline = loadBaseline(opts.dir);
+  } catch (e) {
+    process.stderr.write(`agenttruth: ${e.message}\n`);
+    return 2;
+  }
+
   const fileIndex = buildFileIndex(opts.dir);
-  const docs = collectDocs(opts.dir, opts.files);
+  const docs = collectDocs(opts.dir, opts.files, cfg);
   if (docs.length === 0) {
     const msg = 'agenttruth: no README/CLAUDE/AGENTS docs found — nothing to check\n';
     if (opts.json) process.stdout.write(JSON.stringify({ findings: [], docs: 0 }) + '\n');
@@ -131,18 +150,48 @@ function main() {
       continue;
     }
     const rel = path.relative(opts.dir, doc);
-    results.push(checkNumericClaims(rel, text, sources, opts.dir));
-    results.push(checkFileReferences(rel, text, opts.dir, fileIndex));
+    if (cfg.checks.includes('numeric-claim')) {
+      results.push(checkNumericClaims(rel, text, sources, opts.dir));
+    }
+    if (cfg.checks.includes('missing-file')) {
+      results.push(checkFileReferences(rel, text, opts.dir, fileIndex));
+    }
   }
 
-  const { text, count, findings } = render(results, { cwd: '' });
+  const all = results.flatMap((r) => r.findings);
+  const { fresh, known } = partition(all, baseline);
+  const payload = fresh.length ? [{ file: 'drift', findings: fresh }] : [];
+  const { text, count, findings } = render(payload, { cwd: '' });
+
+  if (opts.updateBaseline) {
+    const saved = saveBaseline(opts.dir, all);
+    process.stdout.write(
+      `agenttruth · recorded ${saved.count} finding${saved.count === 1 ? '' : 's'} in ${path.basename(saved.file)}\n`
+    );
+    return 0;
+  }
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify({ docs: docs.length, count, findings }, null, 2) + '\n');
+    process.stdout.write(
+      JSON.stringify(
+        { docs: docs.length, count, baselined: known.length, findings },
+        null,
+        2
+      ) + '\n'
+    );
   } else if (!opts.quiet || count > 0) {
-    const head = `agenttruth · ${docs.length} doc${docs.length === 1 ? '' : 's'} · ${fileIndex.size} files indexed\n`;
+    const head =
+      `agenttruth · ${docs.length} doc${docs.length === 1 ? '' : 's'} · ` +
+      `${fileIndex.size} files indexed` +
+      (cfg.source ? ` · ${cfg.source}` : '') + '\n';
     process.stdout.write(head + text);
-    if (count === 0) process.stdout.write('  docs currently match the code.\n');
+    if (count === 0) {
+      const clean =
+        known.length > 0
+          ? `  no new drift (${known.length} known finding${known.length === 1 ? '' : 's'} baselined).\n`
+          : '  docs currently match the code.\n';
+      process.stdout.write(clean);
+    }
   }
 
   if (opts.failOn === 'none') return 0;
