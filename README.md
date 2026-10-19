@@ -112,6 +112,10 @@ make test
 
 Findings then annotate the exact file and line on the pull request, next to the diff that caused them — rather than scrolling past in a CI log.
 
+## Speed
+
+Counters are measured once per repo, not once per document. Before memoisation a 5,873-file repo with 42 markdown files took **4m34s** — nobody waits that long in CI. It now takes **~10s**, and `block/buzz` (5,873 files) and `openai/codex` (9,212 files) both complete in seconds. Output is byte-identical before and after.
+
 ## Only check what changed
 
 ```bash

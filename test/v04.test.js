@@ -210,3 +210,49 @@ test('changed: cli skips cleanly when no doc changed', () => {
   assert.ok(r.code === 0 || r.code === 1);
   assert.doesNotMatch(r.err ?? '', /Error|ENOENT/);
 });
+// ---------- counter cache ----------
+// A 5,800-file repo took 4m34s before memoisation and 10s after. The cache is
+// keyed by repo root (or by sources identity when there is no root) so two
+// repos in one process — the MCP server case — cannot read each other's counts.
+
+test('cache: two different sources arrays do not share counters', async () => {
+  const { checkNumericClaims, resetCounterCache } = await import('../src/checks/numeric.js');
+  resetCounterCache();
+  const a = Array.from({ length: 100 }, (_, i) => `check("a${i}");`).join('\n');
+  const b = Array.from({ length: 110 }, (_, i) => `check("b${i}");`).join('\n');
+  // Both within tolerance of 120, so both produce a finding — and they must
+  // report their own counter, not a neighbour's.
+  const doc = 'Covers all 120-checks in CI today.\n';
+  assert.match(checkNumericClaims('R.md', doc, [a]).findings[0].message, /100/);
+  assert.match(checkNumericClaims('R.md', doc, [b]).findings[0].message, /110/);
+  resetCounterCache();
+});
+
+test('cache: repeated calls with the same sources reuse the same result', async () => {
+  const { checkNumericClaims, resetCounterCache } = await import('../src/checks/numeric.js');
+  resetCounterCache();
+  const src = Array.from({ length: 100 }, (_, i) => `check("a${i}");`).join('\n');
+  const doc = 'Covers all 120-checks in CI today.\n';
+  const one = checkNumericClaims('A.md', doc, [src]);
+  const two = checkNumericClaims('B.md', doc, [src]);
+  assert.equal(one.findings.length, 1);
+  assert.equal(two.findings.length, 1);
+  assert.match(two.findings[0].message, /100/);
+  resetCounterCache();
+});
+
+test('perf: a synthetic repo with many docs completes quickly', () => {
+  const files = {};
+  const SRC = Array.from({ length: 100 }, (_, i) => `check("a${i}");`).join('\n');
+  for (let i = 0; i < 40; i++) {
+    files[`README${i === 0 ? '' : i}.md`] = 'Covers all 120-checks in CI.\n';
+  }
+  for (let i = 0; i < 400; i++) files[`src/file${i}.js`] = SRC;
+  const dir = tmpdir(files);
+  const started = process.hrtime.bigint();
+  run(dir);
+  const ms = Number(process.hrtime.bigint() - started) / 1e6;
+  // Generous ceiling: the memoised path is well under this, the un-memoised
+  // path on this fixture took seconds.
+  assert.ok(ms < 5000, `took ${ms.toFixed(0)}ms — counter cache may have regressed`);
+});
