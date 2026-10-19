@@ -10,6 +10,10 @@ import { render } from './report.js';
 import { loadConfig } from './config.js';
 import { loadBaseline, saveBaseline, partition } from './baseline.js';
 import { planFixes, applyFixes } from './fix.js';
+import { parseDisables, applyDisables } from './ignores.js';
+import { shouldFail, isValidThreshold, summarize, severityOf } from './severity.js';
+import { toSarif } from './sarif.js';
+import { docFilesChanged } from './changed.js';
 
 const SKIP_DIR = new Set([
   '.git', 'node_modules', '.build', 'dist', 'target', 'vendor',
@@ -19,7 +23,8 @@ const SKIP_DIR = new Set([
 function parseArgs(argv) {
   const opts = {
     json: false, quiet: false, failOn: 'any',
-    dir: process.cwd(), updateBaseline: false, fix: false, files: [],
+    dir: process.cwd(), updateBaseline: false, fix: false,
+    sarif: false, changed: null, files: [],
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -29,6 +34,11 @@ function parseArgs(argv) {
     else if (a === '--fail-on') opts.failOn = argv[++i];
     else if (a === '--update-baseline') opts.updateBaseline = true;
     else if (a === '--fix') opts.fix = true;
+    else if (a === '--sarif') {
+      const next = argv[i + 1];
+      opts.sarif = next && !next.startsWith('-') ? (i++, next) : true;
+    }
+    else if (a === '--changed') opts.changed = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
     else if (!a.startsWith('-')) opts.files.push(a);
   }
@@ -44,8 +54,13 @@ Usage
 Options
   --dir <path>     repo root (default: cwd)
   --json           emit JSON instead of text
-  --fail-on <sev>  error|any|none (default: any) — exit code threshold
+  --fail-on <sev>  error|warning|any|none (default: any) — exit threshold.
+                   numeric-claim and missing-file are errors;
+                   broken-link and missing-command are warnings.
   --update-baseline  record current findings as known; CI then fails on new drift only
+  --fix             rewrite unambiguous stale counts to the measured value
+  --sarif [file]    write SARIF 2.1.0 for code scanning (default agenttruth.sarif)
+  --changed <ref>   only check docs changed since a git ref (main, HEAD~1, ...)
   -q, --quiet      only print when findings exist
   -h, --help       this text
 
@@ -61,6 +76,11 @@ Config (optional)
 Baseline
   .agenttruth-baseline.json  suppresses known findings so you can adopt
   without failing CI on drift that predates the tool
+
+Inline disables (invisible in rendered markdown)
+  <!-- agenttruth-disable-next-line -->      skip the following line
+  <!-- agenttruth-disable-line reason: ... -->
+  <!-- agenttruth-disable-file reason: ... -->
 
 Exit codes
   0  no new drift
@@ -125,6 +145,12 @@ function main() {
     process.stderr.write(`agenttruth: no such directory: ${opts.dir}\n`);
     return 2;
   }
+  if (!isValidThreshold(opts.failOn)) {
+    process.stderr.write(
+      `agenttruth: --fail-on must be one of error, warning, any, none (got "${opts.failOn}")\n`
+    );
+    return 2;
+  }
 
   let cfg;
   let baseline;
@@ -137,7 +163,22 @@ function main() {
   }
 
   const fileIndex = buildFileIndex(opts.dir);
-  const docs = collectDocs(opts.dir, opts.files, cfg);
+  let onlyDocs = null;
+  if (opts.changed) {
+    const changed = docFilesChanged(opts.dir, opts.changed, cfg);
+    if (changed !== null) {
+      onlyDocs = new Set(changed);
+      const present = [...onlyDocs].filter((f) => fs.existsSync(path.join(opts.dir, f)));
+      if (present.length === 0) {
+        const msg = 'agenttruth: no doc files changed since ' + opts.changed + '\n';
+        if (opts.json) process.stdout.write(JSON.stringify({ docs: 0, count: 0, findings: [] }) + '\n');
+        else if (!opts.quiet) process.stderr.write(msg);
+        return 0;
+      }
+    }
+  }
+  let docs = collectDocs(opts.dir, opts.files, cfg);
+  if (onlyDocs) docs = docs.filter((d) => onlyDocs.has(path.relative(opts.dir, d)));
   if (docs.length === 0) {
     const msg = 'agenttruth: no README/CLAUDE/AGENTS docs found — nothing to check\n';
     if (opts.json) process.stdout.write(JSON.stringify({ findings: [], docs: 0 }) + '\n');
@@ -170,7 +211,18 @@ function main() {
     }
   }
 
-  const all = results.flatMap((r) => r.findings);
+  const disablesByFile = new Map();
+  for (const doc of docs) {
+    try {
+      disablesByFile.set(
+        path.relative(opts.dir, doc),
+        parseDisables(path.relative(opts.dir, doc), fs.readFileSync(doc, 'utf8'))
+      );
+    } catch {}
+  }
+  const raw = results.flatMap((r) => r.findings);
+  const { kept, suppressed } = applyDisables(raw, disablesByFile);
+  const all = kept;
   const { fresh, known } = partition(all, baseline);
   const payload = fresh.length ? [{ file: 'drift', findings: fresh }] : [];
   const { text, count, findings } = render(payload, { cwd: '' });
@@ -210,11 +262,23 @@ function main() {
       ) + '\n'
     );
   } else if (!opts.quiet || count > 0) {
+    const sev = summarize(findings);
     const head =
       `agenttruth · ${docs.length} doc${docs.length === 1 ? '' : 's'} · ` +
       `${fileIndex.size} files indexed` +
       (cfg.source ? ` · ${cfg.source}` : '') + '\n';
     process.stdout.write(head + text);
+    if (suppressed.length > 0) {
+      process.stdout.write(
+        `  ${suppressed.length} finding${suppressed.length === 1 ? '' : 's'} suppressed by inline disable\n`
+      );
+    }
+    if (count > 0) {
+      process.stdout.write(
+        `  ${sev.error} error${sev.error === 1 ? '' : 's'}, ` +
+          `${sev.warning} warning${sev.warning === 1 ? '' : 's'}\n`
+      );
+    }
     if (count === 0) {
       const clean =
         known.length > 0
@@ -224,8 +288,14 @@ function main() {
     }
   }
 
-  if (opts.failOn === 'none') return 0;
-  return count > 0 ? 1 : 0;
+  if (opts.sarif) {
+    const outFile = typeof opts.sarif === 'string' ? opts.sarif : 'agenttruth.sarif';
+    const report = toSarif(findings, { repoUrl: 'https://github.com/hemv-857/agenttruth' });
+    fs.writeFileSync(outFile, JSON.stringify(report, null, 2) + '\n');
+    process.stderr.write(`agenttruth · wrote SARIF for ${findings.length} finding(s) to ${outFile}\n`);
+  }
+
+  return shouldFail(findings, opts.failOn) ? 1 : 0;
 }
 
 process.exit(main());

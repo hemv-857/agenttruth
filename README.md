@@ -70,6 +70,56 @@ npx agenttruth --fix
 
 Rewrites stale counts to the measured value. **Only unambiguous ones** — if two files claim to hold "the agent catalog" and disagree, it refuses rather than guesses, because a wrong number in a README is worse than a stale one.
 
+## Severity
+
+| check | severity | why |
+|---|---|---|
+| `numeric-claim` | **error** | arithmetic — 299 claimed, 266 measured |
+| `missing-file` | **error** | the file is either there or it isn't |
+| `broken-link` | warning | could be an intentional external path |
+| `missing-command` | warning | the tool may exist in the reader's environment |
+
+```bash
+npx agenttruth --fail-on error    # block the build on errors only
+npx agenttruth --fail-on warning  # errors and warnings
+```
+
+## Inline disables
+
+Every finding can be waved through in place, with a reason. All invisible in rendered markdown.
+
+```markdown
+<!-- agenttruth-disable-next-line reason: Makefile is vendored at build time -->
+```bash
+make test
+```
+
+```
+<!-- agenttruth-disable-line -->       this line only
+<!-- agenttruth-disable-file -->        the whole file
+```
+
+`disable-next-line` covers an entire fenced block when the next line opens one.
+
+## GitHub code scanning
+
+```yaml
+- run: npx agenttruth --sarif agenttruth.sarif --fail-on none
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: agenttruth.sarif
+```
+
+Findings then annotate the exact file and line on the pull request, next to the diff that caused them — rather than scrolling past in a CI log.
+
+## Only check what changed
+
+```bash
+npx agenttruth --changed origin/main
+```
+
+Scans only the doc files a branch touched, so the check is cheap enough to run on every push instead of nightly. Falls back to a full scan when the ref is missing or the tree isn't a git repo.
+
 ## CI
 
 ```yaml
@@ -129,7 +179,7 @@ Two tools: `check_drift` (findings with file and line) and `list_agent_docs` (wh
 
 ## Honest scope
 
-Four checks (`numeric-claim`, `missing-file`, `broken-link`, `missing-command`), each tuned for low false positives over recall. It stays silent on anything it can't prove. It is tuned for low false positives over recall: on a sample of well-maintained repos it flags a handful of findings, and the ones we spot-checked are real drift. If it can't prove a file is wrong, it stays quiet.
+Four checks (`numeric-claim`, `missing-file`, `broken-link`, `missing-command`), each tuned for low false positives over recall. Errors and warnings are separated so `--fail-on error` can block on the provable ones and leave the judgement calls visible. It is tuned for low false positives over recall: on a sample of well-maintained repos it flags a handful of findings, and the ones we spot-checked are real drift. If it can't prove a file is wrong, it stays quiet.
 
 ## License
 
