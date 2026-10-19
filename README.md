@@ -162,13 +162,33 @@ Fix what you can, then re-baseline. Fingerprints ignore line numbers, so unrelat
 
 ## MCP
 
-Agents can check their own instructions before a run:
+Agents can check their own instructions before a run, and fix them when stale:
 
 ```json
 { "mcpServers": { "agenttruth": { "command": "npx", "args": ["-y", "agenttruth-mcp"] } } }
 ```
 
-Two tools: `check_drift` (findings with file and line) and `list_agent_docs` (what gets inspected). Zero dependencies — it speaks JSON-RPC over stdio directly.
+| tool | does |
+|---|---|
+| `check_drift` | findings with file and line, baseline-aware |
+| `fix_drift` | rewrites unambiguous stale counts (`dry_run` supported) |
+| `baseline_drift` | records current findings so CI fails only on new drift |
+| `list_agent_docs` | which instruction files are inspected |
+
+Zero dependencies — it speaks JSON-RPC over stdio directly.
+
+## GitHub Action
+
+```yaml
+- run: npm install --no-save agenttruth
+- uses: hemv-857/agenttruth@v6
+  with:
+    fail-on: error
+    changed: origin/main     # only docs this branch touched
+    sarif: agenttruth.sarif  # annotate the PR diff
+```
+
+`fail-on` defaults to `error` so the action blocks on provable findings without failing builds on judgement calls.
 
 ## Options
 

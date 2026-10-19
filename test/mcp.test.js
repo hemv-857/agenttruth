@@ -62,10 +62,10 @@ test('mcp: initialize returns protocol and server info', async () => {
   assert.ok(r.result.capabilities.tools);
 });
 
-test('mcp: tools/list exposes check_drift and list_agent_docs', async () => {
+test('mcp: tools/list exposes every tool with a schema and description', async () => {
   const [r] = await rpc('.', [{ jsonrpc: '2.0', id: 1, method: 'tools/list' }]);
   const names = r.result.tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ['check_drift', 'list_agent_docs']);
+  assert.deepEqual(names, ['baseline_drift', 'check_drift', 'fix_drift', 'list_agent_docs']);
   for (const t of r.result.tools) {
     assert.equal(t.inputSchema.type, 'object');
     assert.ok(t.description.length > 20);
@@ -135,3 +135,63 @@ test('mcp: list_agent_docs names the files it inspects', async () => {
   assert.match(r.result.content[0].text, /README\.md/);
 });
 
+
+// ---------- fix_drift / baseline_drift ----------
+
+test('mcp: fix_drift dry_run reports without writing', async () => {
+  const dir = driftDir();
+  const before = fs.readFileSync(path.join(dir, 'README.md'), 'utf8');
+  const [r] = await rpc(dir, [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'fix_drift', arguments: { dir, dry_run: true } } },
+  ]);
+  assert.match(r.result.content[0].text, /Would rewrite/);
+  assert.equal(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), before);
+});
+
+test('mcp: fix_drift rewrites and the repo then reads clean', async () => {
+  const dir = driftDir();
+  const [fix] = await rpc(dir, [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'fix_drift', arguments: { dir } } },
+  ]);
+  assert.match(fix.result.content[0].text, /Rewrote/);
+  assert.match(fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), /100-checks/);
+
+  const [check] = await rpc(dir, [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'check_drift', arguments: { dir } } },
+  ]);
+  assert.match(check.result.content[0].text, /No drift found/);
+});
+
+test('mcp: fix_drift is honest when there is nothing unambiguous to fix', async () => {
+  const dir = tmpdir({
+    'README.md': 'See [gone](./nope.md)\n',
+    'other.md': '# Other\n',
+  });
+  const [r] = await rpc(dir, [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'fix_drift', arguments: { dir } } },
+  ]);
+  assert.match(r.result.content[0].text, /Nothing to auto-fix/);
+  assert.equal(r.result.isError, false);
+});
+
+test('mcp: baseline_drift records findings that check_drift then suppresses', async () => {
+  const dir = driftDir();
+  const [b] = await rpc(dir, [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'baseline_drift', arguments: { dir } } },
+  ]);
+  assert.match(b.result.content[0].text, /Recorded \d+ finding/);
+  assert.ok(fs.existsSync(path.join(dir, '.agenttruth-baseline.json')));
+
+  const [c] = await rpc(dir, [
+    { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'check_drift', arguments: { dir } } },
+  ]);
+  assert.match(c.result.content[0].text, /No drift found/);
+  assert.match(c.result.content[0].text, /suppressed by baseline/);
+});
+
+test('mcp: tools/list advertises all four tools with descriptions', async () => {
+  const [r] = await rpc('.', [{ jsonrpc: '2.0', id: 1, method: 'tools/list' }]);
+  const names = r.result.tools.map((t) => t.name).sort();
+  assert.deepEqual(names, ['baseline_drift', 'check_drift', 'fix_drift', 'list_agent_docs']);
+  for (const t of r.result.tools) assert.ok(t.description.length > 20);
+});

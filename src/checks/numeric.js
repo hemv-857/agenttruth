@@ -159,7 +159,7 @@ export function resetCounterCache() {
   counterCache.clear();
 }
 
-export function checkNumericClaims(file, text, sources, repoRoot = null) {
+export function checkNumericClaims(file, text, sources, repoRoot = null, opts = {}) {
   const findings = [];
   const counters = countersFor(sources, repoRoot);
   if (counters.length === 0) return { file, findings };
@@ -179,8 +179,14 @@ export function checkNumericClaims(file, text, sources, repoRoot = null) {
 
     // Typo-sized error only. Drift is usually a stale count from an earlier
     // commit, so the band is generous (25%), but wild numbers stay ignored.
-    const near = eligible.filter(
-      (c) => Math.abs(c.count - num) <= Math.max(5, num * 0.25)
+    const tolerance = typeof opts.tolerance === 'number' && opts.tolerance > 0
+      ? opts.tolerance
+      : 0.25;
+    const near = eligible.filter((c) =>
+      // Band scales off the MEASURED count, not the claimed one. Scaling off
+      // the claim means an inflated number widens its own tolerance — "I claim
+      // 130 checks" would then tolerate a gap of 32 checks.
+      Math.abs(c.count - num) <= Math.max(5, c.count * tolerance)
     );
     if (near.length === 0) continue;
 

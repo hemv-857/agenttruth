@@ -12,7 +12,8 @@ import { checkFileReferences, buildFileIndex } from './checks/filerefs.js';
 import { checkLinks } from './checks/links.js';
 import { checkCommands } from './checks/commands.js';
 import { loadConfig } from './config.js';
-import { loadBaseline, partition } from './baseline.js';
+import { loadBaseline, saveBaseline, partition } from './baseline.js';
+import { planFixes, applyFixes } from './fix.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 
@@ -59,7 +60,9 @@ function analyze(root) {
       continue;
     }
     if (cfg.checks.includes('numeric-claim')) {
-      results.push(checkNumericClaims(rel, text, sources, root));
+      results.push(
+        checkNumericClaims(rel, text, sources, root, { tolerance: cfg.driftTolerance })
+      );
     }
     if (cfg.checks.includes('missing-file')) {
       results.push(checkFileReferences(rel, text, root, fileIndex));
@@ -105,6 +108,35 @@ const TOOLS = [
     },
   },
   {
+    name: 'fix_drift',
+    description:
+      'Rewrite stale numeric claims in docs to the value the repo actually measures. ' +
+      'Only unambiguous ones are rewritten — if two counters disagree the tool refuses ' +
+      'rather than guess. Use after check_drift reports a numeric-claim finding.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: 'Repo root. Defaults to cwd.' },
+        dry_run: {
+          type: 'boolean',
+          description: 'Report what would change without writing. Default false.',
+        },
+      },
+    },
+  },
+  {
+    name: 'baseline_drift',
+    description:
+      'Record current findings in .agenttruth-baseline.json so CI fails only on NEW drift. ' +
+      'Use when adopting agenttruth on a repo that already has known drift.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: 'Repo root. Defaults to cwd.' },
+      },
+    },
+  },
+  {
     name: 'list_agent_docs',
     description:
       'List the instruction files agenttruth inspects in this repo, and whether each exists.',
@@ -126,7 +158,7 @@ function handle(msg) {
       return reply({
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'agenttruth', version: '0.3.0' },
+        serverInfo: { name: 'agenttruth', version: '0.6.0' },
       });
 
     case 'tools/list':
@@ -160,6 +192,57 @@ function handle(msg) {
             : '';
         return reply({
           content: [{ type: 'text', text: body + suffix }],
+          isError: false,
+        });
+      }
+
+      if (name === 'fix_drift') {
+        const { results: fresh } = analyze(root);
+        const all = fresh.flatMap((r) => r.findings);
+        const { fresh: unbaselined } = partition(all, loadBaseline(root));
+        const fixes = planFixes(unbaselined);
+        if (fixes.length === 0) {
+          return reply({
+            content: [
+              {
+                type: 'text',
+                text:
+                  'Nothing to auto-fix. Only unambiguous counts are rewritten; ' +
+                  'ambiguous ones must be fixed by hand.',
+              },
+            ],
+            isError: false,
+          });
+        }
+        const applied = args.dry_run
+          ? fixes.map((f) => ({ ...f }))
+          : applyFixes(root, fixes);
+        const lines = applied.map((a) => `${a.file}:${a.line}  ${a.from} -> ${a.to}`);
+        return reply({
+          content: [
+            {
+              type: 'text',
+              text:
+                (args.dry_run ? 'Would rewrite:\n' : 'Rewrote:\n') +
+                lines.join('\n') +
+                `\n\nReason: ${fixes[0].reason}`,
+            },
+          ],
+          isError: false,
+        });
+      }
+
+      if (name === 'baseline_drift') {
+        const { results: fresh } = analyze(root);
+        const all = fresh.flatMap((r) => r.findings);
+        const saved = saveBaseline(root, all);
+        return reply({
+          content: [
+            {
+              type: 'text',
+              text: `Recorded ${saved.count} finding(s) in ${path.basename(saved.file)}. CI now fails only on new drift.`,
+            },
+          ],
           isError: false,
         });
       }

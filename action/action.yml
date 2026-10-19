@@ -1,18 +1,28 @@
 name: 'agenttruth'
-description: 'Fail the build when CLAUDE.md / AGENTS.md / README stop matching the code'
+description: 'Fail the build when CLAUDE.md / AGENTS.md / README stop matching the code they describe'
 author: 'hemv-857'
+branding:
+  icon: 'alert-triangle'
+  color: 'red'
 inputs:
   dir:
     description: 'Repo root to scan'
     required: false
     default: '.'
   fail-on:
-    description: 'error | any | none'
+    description: 'error | warning | any | none'
     required: false
-    default: 'any'
+    default: 'error'
+  changed:
+    description: 'Only check docs changed since this git ref (e.g. origin/main). Leave empty to scan all.'
+    required: false
+    default: ''
+  sarif:
+    description: 'Write SARIF 2.1.0 here for GitHub code scanning. Leave empty to skip.'
+    required: false
+    default: ''
 runs:
   using: 'node20'
-  main: '../bin/agenttruth.js'
-branding:
-  icon: 'alert-triangle'
-  color: 'red'
+  # Must live inside the action directory — a JS action may not reference
+  # files outside it. This wrapper invokes the published CLI.
+  main: 'index.js'

@@ -198,7 +198,9 @@ function main() {
     }
     const rel = path.relative(opts.dir, doc);
     if (cfg.checks.includes('numeric-claim')) {
-      results.push(checkNumericClaims(rel, text, sources, opts.dir));
+      results.push(
+        checkNumericClaims(rel, text, sources, opts.dir, { tolerance: cfg.driftTolerance })
+      );
     }
     if (cfg.checks.includes('missing-file')) {
       results.push(checkFileReferences(rel, text, opts.dir, fileIndex));
