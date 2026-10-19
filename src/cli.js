@@ -26,23 +26,36 @@ function parseArgs(argv) {
     json: false, quiet: false, failOn: 'any',
     dir: process.cwd(), updateBaseline: false, fix: false,
     sarif: false, changed: null, files: [], format: 'text',
+    unknown: null, missingValue: null,
   };
+  // A typo'd option must be an error, not silence. This tool exists to fail a
+  // build when docs are wrong, so silently exiting 0 having checked nothing is
+  // the one outcome it can never produce.
+  const needsValue = new Set(['--dir', '--fail-on', '--changed', '--format']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') opts.format = 'json';
-    else if (a === '--format') opts.format = argv[++i];
+    else if (needsValue.has(a)) {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith('-')) {
+        opts.missingValue = a;
+        break;
+      }
+      if (a === '--dir') opts.dir = path.resolve(v);
+      else if (a === '--fail-on') opts.failOn = v;
+      else if (a === '--changed') opts.changed = v;
+      else opts.format = v;
+    }
     else if (a === '--quiet' || a === '-q') opts.quiet = true;
-    else if (a === '--dir') opts.dir = path.resolve(argv[++i]);
-    else if (a === '--fail-on') opts.failOn = argv[++i];
     else if (a === '--update-baseline') opts.updateBaseline = true;
     else if (a === '--fix') opts.fix = true;
     else if (a === '--sarif') {
       const next = argv[i + 1];
       opts.sarif = next && !next.startsWith('-') ? (i++, next) : true;
     }
-    else if (a === '--changed') opts.changed = argv[++i];
     else if (a === '--help' || a === '-h') opts.help = true;
-    else if (!a.startsWith('-')) opts.files.push(a);
+    else if (a.startsWith('-')) opts.unknown = a;
+    else opts.files.push(a);
   }
   return opts;
 }
@@ -145,6 +158,16 @@ function main() {
   if (opts.help) {
     process.stdout.write(HELP);
     return 0;
+  }
+  if (opts.unknown) {
+    process.stderr.write(
+      `agenttruth: unknown option "${opts.unknown}" — see --help\n`
+    );
+    return 2;
+  }
+  if (opts.missingValue) {
+    process.stderr.write(`agenttruth: ${opts.missingValue} needs a value\n`);
+    return 2;
   }
   if (!fs.existsSync(opts.dir)) {
     process.stderr.write(`agenttruth: no such directory: ${opts.dir}\n`);

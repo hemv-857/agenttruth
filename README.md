@@ -189,7 +189,7 @@ Zero dependencies — it speaks JSON-RPC over stdio directly.
 
 Findings annotate the pull request at the exact file and line, next to the diff that caused them — no code-scanning setup required. `fail-on` defaults to `error` so the action blocks on provable findings without failing builds on judgement calls.
 
-The `v0` tag moves with each release, so you get fixes without editing the workflow. Pin `@v0.6.0` instead if you want the version frozen.
+The `v0` tag moves with each release, so you get fixes without editing the workflow. Pin `@v0.8.0` instead if you want the version frozen.
 
 Prefer code scanning annotations? `sarif: agenttruth.sarif` writes a SARIF report for `github/codeql-action/upload-sarif`, and the action then skips its own annotations so nothing appears twice.
 
