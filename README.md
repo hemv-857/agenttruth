@@ -127,7 +127,7 @@ Scans only the doc files a branch touched, so the check is cheap enough to run o
 ## CI
 
 ```yaml
-- uses: hemv-857/agenttruth@v1
+- uses: hemv-857/agenttruth@v0
 ```
 
 Or run it directly:
@@ -181,25 +181,33 @@ Zero dependencies — it speaks JSON-RPC over stdio directly.
 
 ```yaml
 - run: npm install --no-save agenttruth
-- uses: hemv-857/agenttruth@v6
+- uses: hemv-857/agenttruth@v0
   with:
     fail-on: error
     changed: origin/main     # only docs this branch touched
-    sarif: agenttruth.sarif  # annotate the PR diff
 ```
 
-`fail-on` defaults to `error` so the action blocks on provable findings without failing builds on judgement calls.
+Findings annotate the pull request at the exact file and line, next to the diff that caused them — no code-scanning setup required. `fail-on` defaults to `error` so the action blocks on provable findings without failing builds on judgement calls.
+
+The `v0` tag moves with each release, so you get fixes without editing the workflow. Pin `@v0.6.0` instead if you want the version frozen.
+
+Prefer code scanning annotations? `sarif: agenttruth.sarif` writes a SARIF report for `github/codeql-action/upload-sarif`, and the action then skips its own annotations so nothing appears twice.
 
 ## Options
 
 ```
 --dir <path>          repo root (default: cwd)
---json                machine-readable output
---fail-on <sev>       error | any | none (default: any) — exit threshold
+--json                machine-readable output (--format json)
+--format <fmt>        text | json | github
+--fail-on <sev>       error | warning | any | none (default: any) — exit threshold
 --update-baseline     record current findings as known
 --fix                 rewrite unambiguous stale counts to the measured value
+--sarif [file]        write SARIF 2.1.0 for code scanning
+--changed <ref>       only check docs changed since this git ref
 -q, --quiet           print only when there are findings
 ```
+
+`--format github` prints [workflow commands](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions), so plain `- run: npx agenttruth` annotates a PR diff too. It needs no code scanning, which matters on private repos where that requires GitHub Advanced Security.
 
 ## Honest scope
 

@@ -13,6 +13,7 @@ import { planFixes, applyFixes } from './fix.js';
 import { parseDisables, applyDisables } from './ignores.js';
 import { shouldFail, isValidThreshold, summarize, severityOf } from './severity.js';
 import { toSarif } from './sarif.js';
+import { toWorkflowCommands } from './github.js';
 import { docFilesChanged } from './changed.js';
 
 const SKIP_DIR = new Set([
@@ -24,11 +25,12 @@ function parseArgs(argv) {
   const opts = {
     json: false, quiet: false, failOn: 'any',
     dir: process.cwd(), updateBaseline: false, fix: false,
-    sarif: false, changed: null, files: [],
+    sarif: false, changed: null, files: [], format: 'text',
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--json') opts.json = true;
+    if (a === '--json') opts.format = 'json';
+    else if (a === '--format') opts.format = argv[++i];
     else if (a === '--quiet' || a === '-q') opts.quiet = true;
     else if (a === '--dir') opts.dir = path.resolve(argv[++i]);
     else if (a === '--fail-on') opts.failOn = argv[++i];
@@ -53,7 +55,10 @@ Usage
 
 Options
   --dir <path>     repo root (default: cwd)
-  --json           emit JSON instead of text
+  --json           emit JSON instead of text (--format json)
+  --format <fmt>   text | json | github
+                   github prints Actions workflow commands, so findings
+                   annotate the PR diff — no code-scanning setup needed
   --fail-on <sev>  error|warning|any|none (default: any) — exit threshold.
                    numeric-claim and missing-file are errors;
                    broken-link and missing-command are warnings.
@@ -151,6 +156,13 @@ function main() {
     );
     return 2;
   }
+  if (!['text', 'json', 'github'].includes(opts.format)) {
+    process.stderr.write(
+      `agenttruth: --format must be one of text, json, github (got "${opts.format}")\n`
+    );
+    return 2;
+  }
+  opts.json = opts.format === 'json';
 
   let cfg;
   let baseline;
@@ -255,7 +267,9 @@ function main() {
     return 0;
   }
 
-  if (opts.json) {
+  if (opts.format === 'github') {
+    process.stdout.write(toWorkflowCommands(findings) + '\n');
+  } else if (opts.json) {
     process.stdout.write(
       JSON.stringify(
         { docs: docs.length, count, baselined: known.length, findings },

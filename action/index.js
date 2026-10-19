@@ -44,7 +44,14 @@ const changed = process.env.INPUT_CHANGED;
 if (changed && changed.trim()) args.push('--changed', changed.trim());
 
 const sarif = process.env.INPUT_SARIF;
-if (sarif && sarif.trim()) args.push('--sarif', sarif.trim());
+if (sarif && sarif.trim()) {
+  // Code scanning produces its own annotations; workflow commands would
+  // duplicate every finding on the PR, so only one path is used.
+  args.push('--sarif', sarif.trim());
+} else {
+  // Free inline annotations on the PR diff — needs no code-scanning setup.
+  args.push('--format', 'github');
+}
 
 const res = spawnSync(process.execPath, args, { stdio: 'inherit' });
 process.exit(res.status ?? 1);
