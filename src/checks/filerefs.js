@@ -24,7 +24,16 @@ const SUBMODULE_PREFIXES = new Set(['opensrc', 'third_party', 'thirdparty', 'ven
 const USER_ARTIFACT = new RegExp(
   '^(my|your|example|sample|demo|tmp|temp|local|out|output|dist|build|result|results|data|dump|export|snapshot|snapshots|cache|scratch|test-results?|node_modules|coverage|ci-|custom|\\.|_)'
 );
-const ARTIFACT_HINT = /(?:you(?:'ll| will|r)?\s+(?:create|write|save|generate|produce)|create (?:a|an|your|the)|generated (?:by|at)|output (?:file|dir)|will be (?:created|written|produced)|placeholder)/i;
+const ARTIFACT_HINT = new RegExp(
+  "you(?:'ll| will|r)?\\s+(?:create|write|save|generate|produce)" +
+    '|create (?:a|an|your|the)|generated (?:by|at)|output (?:file|dir)' +
+    '|will be (?:created|written|produced)|placeholder' +
+    // "copy `.vscode/settings.example.json` into `.vscode/settings.json`" —
+    // the destination does not exist yet by construction. The gap spans the
+    // source filename, which itself contains dots.
+    '|(?:copy|rename)\\b.{0,90}?\\b(?:into|to)\\b',
+  'i'
+);
 
 export function checkFileReferences(file, text, repoRoot, fileIndex) {
   const findings = [];
@@ -61,6 +70,15 @@ const scannable = lineText.replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, '  ');
       // creates, not files the repo ships. Referencing them is correct.
       if (USER_ARTIFACT.test(base)) continue;
       if (ARTIFACT_HINT.test(scannable)) continue;
+
+      // The doc named a directory too, so check that exact path. The file
+      // index skips dotfiles by design (`.vscode/settings.example.json` is
+      // invisible to it), and a basename lookup alone would then report an
+      // existing file as missing.
+      if (m[0].includes('/') || m[0].includes('\\')) {
+        const stated = m[0].replace(/^\.\//, '');
+        if (fs.existsSync(path.join(repoRoot, stated))) continue;
+      }
 
       // Bare filename mentioned: verify a file with this name exists in the repo.
       const hits = [...fileIndex.values()].filter((f) => path.basename(f) === base);

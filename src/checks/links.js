@@ -36,13 +36,18 @@ export function checkLinks(file, text, repoRoot) {
         // Absolute, protocol-relative, mailto, and in-page anchors.
         if (/^[a-z][\w+.-]*:/i.test(target)) continue;
         if (target.startsWith('//') || target.startsWith('#')) continue;
-        // A bare fragment path like `#/route` or `/docs/x` may be site-absolute.
-        if (target.startsWith('/') && !fs.existsSync(path.join(repoRoot, target.slice(1)))) {
-          // Could be a hosted-docs absolute path. Only flag if the repo has
-          // a docs dir the path plausibly points into.
+        // Site-absolute path: a leading `/` is repo-root-relative on GitHub,
+        // but in a file under docs/ it is normally a route of the rendered
+        // site (`/team`, `/guide/migration/`). Those are correct links, so only
+        // a missing FILE-shaped path can be proven wrong — extensionless paths
+        // and generated .html pages are treated as site routes.
+        if (target.startsWith('/')) {
           const asPath = target.slice(1);
-          if (fs.existsSync(path.join(repoRoot, asPath))) continue;
-          if (/\.(html?|php)$/i.test(asPath)) continue;
+          if (!fs.existsSync(path.join(repoRoot, asPath))) {
+            const bare = asPath.replace(/\/+$/, '');
+            if (!/\.[A-Za-z0-9]+$/.test(bare)) continue;
+            if (/\.(html?|php)$/i.test(bare)) continue;
+          }
         }
 
         const [pathPart, anchor] = target.split('#');

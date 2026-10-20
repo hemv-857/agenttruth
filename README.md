@@ -211,7 +211,11 @@ Prefer code scanning annotations? `sarif: agenttruth.sarif` writes a SARIF repor
 
 ## Honest scope
 
-Four checks (`numeric-claim`, `missing-file`, `broken-link`, `missing-command`), each tuned for low false positives over recall. Errors and warnings are separated so `--fail-on error` can block on the provable ones and leave the judgement calls visible. It is tuned for low false positives over recall: on a sample of well-maintained repos it flags a handful of findings, and the ones we spot-checked are real drift. If it can't prove a file is wrong, it stays quiet.
+Four checks (`numeric-claim`, `missing-file`, `broken-link`, `missing-command`), each tuned for low false positives over recall. Errors and warnings are separated so `--fail-on error` can block on the provable ones and leave judgement calls visible. If it can't prove a file is wrong, it stays quiet.
+
+Measured on ten repos — `claude-code`, `pretext`, `openai/codex`, `agent-browser`, `block/buzz`, `express`, `vite`, `eslint`, `vitest`, `babel` — it reports **0, 0, 2, 6, 9, 0, 0, 0, 0, 1**. Every one of those findings was inspected. Three were false positives (a docs-site route read as a repo path, a file inside a dot-directory the index skips) and are fixed, not explained away; the single `babel` hit is a real typo — `CONTRIBUTING.md` names `pluginsConfig.json`, the repo ships `pluginConfig.json`.
+
+It behaves identically on a macOS checkout and a case-sensitive Linux CI runner. Docs are matched against their real on-disk names, so a repo shipping `Readme.md` is checked everywhere, and annotations point at a path that exists.
 
 ## License
 

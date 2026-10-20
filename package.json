@@ -1,6 +1,6 @@
 {
   "name": "agenttruth",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "CI check that fails when CLAUDE.md / AGENTS.md / README stop matching the code they describe",
   "type": "module",
   "bin": {

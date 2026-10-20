@@ -15,6 +15,7 @@ import { shouldFail, isValidThreshold, summarize, severityOf } from './severity.
 import { toSarif } from './sarif.js';
 import { toWorkflowCommands } from './github.js';
 import { docFilesChanged } from './changed.js';
+import { discoverDocs, resolveDocArg } from './docs.js';
 
 const SKIP_DIR = new Set([
   '.git', 'node_modules', '.build', 'dist', 'target', 'vendor',
@@ -110,30 +111,8 @@ MCP
 `;
 
 function collectDocs(root, explicit, cfg) {
-  if (explicit.length) {
-    return explicit.map((f) => path.resolve(root, f));
-  }
-  const out = [];
-  const seen = new Set();
-  const ignore = new Set(cfg.ignore);
-  for (const r of cfg.docs) {
-    if (ignore.has(r)) continue;
-    const full = path.join(root, r);
-    if (fs.existsSync(full) && fs.statSync(full).isFile()) {
-      out.push(full);
-      seen.add(r);
-    }
-  }
-  const docsDir = path.join(root, cfg.docsDir);
-  if (fs.existsSync(docsDir)) {
-    for (const e of fs.readdirSync(docsDir)) {
-      if (!e.endsWith('.md')) continue;
-      const rel = `${cfg.docsDir}/${e}`;
-      if (ignore.has(rel) || seen.has(rel)) continue;
-      out.push(path.join(docsDir, e));
-    }
-  }
-  return out;
+  if (explicit.length) return explicit.map((f) => resolveDocArg(root, f));
+  return discoverDocs(root, cfg).map((d) => d.full);
 }
 
 function readSources(root, fileIndex) {

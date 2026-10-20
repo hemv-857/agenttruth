@@ -12,6 +12,7 @@ import { checkFileReferences, buildFileIndex } from './checks/filerefs.js';
 import { checkLinks } from './checks/links.js';
 import { checkCommands } from './checks/commands.js';
 import { loadConfig } from './config.js';
+import { discoverDocs } from './docs.js';
 import { loadBaseline, saveBaseline, partition } from './baseline.js';
 import { planFixes, applyFixes } from './fix.js';
 
@@ -33,23 +34,7 @@ function analyze(root) {
     } catch {}
   }
 
-  const ignore = new Set(cfg.ignore);
-  const docs = [];
-  for (const rel of cfg.docs) {
-    if (ignore.has(rel)) continue;
-    const full = path.join(root, rel);
-    if (fs.existsSync(full) && fs.statSync(full).isFile()) docs.push({ rel, full });
-  }
-  const docsDir = path.join(root, cfg.docsDir);
-  if (fs.existsSync(docsDir)) {
-    for (const e of fs.readdirSync(docsDir)) {
-      if (!e.endsWith('.md')) continue;
-      const rel = `${cfg.docsDir}/${e}`;
-      if (ignore.has(rel)) continue;
-      const full = path.join(docsDir, e);
-      if (!docs.some((d) => d.full === full)) docs.push({ rel, full });
-    }
-  }
+  const docs = discoverDocs(root, cfg);
 
   const results = [];
   for (const { rel, full } of docs) {

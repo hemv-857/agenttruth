@@ -20,9 +20,13 @@ export function changedFiles(root, ref) {
 }
 
 export function isDocPath(rel, cfg) {
-  if (cfg.ignore.includes(rel)) return false;
-  if (cfg.docs.includes(rel)) return true;
-  return rel.startsWith(cfg.docsDir + '/') && rel.endsWith('.md');
+  // Case-insensitive for the same reason discovery is: git reports the name on
+  // disk (`Readme.md`) while config lists `README.md`, and on a case-sensitive
+  // runner an exact match would skip the one doc this branch actually touched.
+  const lower = rel.toLowerCase();
+  if (cfg.ignore.some((i) => i.toLowerCase() === lower)) return false;
+  if (cfg.docs.some((d) => d.toLowerCase() === lower)) return true;
+  return lower.startsWith(cfg.docsDir.toLowerCase() + '/') && lower.endsWith('.md');
 }
 
 export function docFilesChanged(root, ref, cfg) {
