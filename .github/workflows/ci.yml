@@ -56,7 +56,9 @@ jobs:
           exit 1
       - name: assert annotations are emitted for the PR diff
         run: |
-          out=$(node bin/agenttruth.js --dir "$RUNNER_TEMP/drift" --format github)
+          # `|| true`: the CLI exits 1 on findings, and a command substitution
+          # carrying a non-zero status aborts the step under `bash -e`.
+          out=$(node bin/agenttruth.js --dir "$RUNNER_TEMP/drift" --format github || true)
           echo "$out"
           grep -q '^::error file=README.md,line=1,title=missing-file::' <<<"$out" \
             || { echo "::error::no workflow-command annotation produced"; exit 1; }
