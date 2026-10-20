@@ -34,7 +34,7 @@ function analyze(root) {
     } catch {}
   }
 
-  const docs = discoverDocs(root, cfg);
+  const docs = discoverDocs(root, cfg, fileIndex);
 
   const results = [];
   for (const { rel, full } of docs) {

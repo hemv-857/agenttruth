@@ -26,7 +26,9 @@ export function isDocPath(rel, cfg) {
   const lower = rel.toLowerCase();
   if (cfg.ignore.some((i) => i.toLowerCase() === lower)) return false;
   if (cfg.docs.some((d) => d.toLowerCase() === lower)) return true;
-  return lower.startsWith(cfg.docsDir.toLowerCase() + '/') && lower.endsWith('.md');
+  if (lower.startsWith(cfg.docsDir.toLowerCase() + '/') && lower.endsWith('.md')) return true;
+  // Nested agent files, mirroring what discovery recurses for.
+  return (cfg.agentDocs ?? []).some((n) => n.toLowerCase() === path.basename(lower));
 }
 
 export function docFilesChanged(root, ref, cfg) {

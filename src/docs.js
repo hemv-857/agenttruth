@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildFileIndex } from './checks/filerefs.js';
 
 // Doc discovery, shared by the CLI and the MCP server so the two cannot drift
 // apart about what counts as an instruction file.
@@ -14,14 +15,17 @@ import path from 'node:path';
 //   2. The `rel` we report is the name on disk. SARIF and workflow-command
 //      annotations are matched against real paths by GitHub, so a finding
 //      labelled README.md for a file named Readme.md does not link anywhere.
-export function discoverDocs(root, cfg) {
-  const ignore = new Set(cfg.ignore);
+//
+// The optional fileIndex is the caller's already-built file index: nested
+// agent files are found from it so the tree is walked once.
+export function discoverDocs(root, cfg, fileIndex) {
+  const ignore = new Set(cfg.ignore.map((i) => i.toLowerCase()));
   const out = [];
   const seen = new Set();
 
   const rootFiles = byLowerName(root);
   for (const r of cfg.docs) {
-    if (ignore.has(r)) continue;
+    if (ignore.has(r.toLowerCase())) continue;
     const actual = rootFiles.get(r.toLowerCase());
     if (!actual) continue;
     const full = path.join(root, actual);
@@ -35,11 +39,29 @@ export function discoverDocs(root, cfg) {
     for (const e of fs.readdirSync(docsDir)) {
       if (!e.toLowerCase().endsWith('.md')) continue;
       const key = e.toLowerCase();
-      if (ignore.has(`${cfg.docsDir}/${e}`) || seen.has(key)) continue;
+      if (ignore.has(`${cfg.docsDir}/${e}`.toLowerCase()) || seen.has(key)) continue;
       out.push({ rel: `${cfg.docsDir}/${e}`, full: path.join(docsDir, e) });
       seen.add(key);
     }
   }
+
+  // Nested agent instruction files (src/foo/AGENTS.md, examples/eve/CLAUDE.md).
+  // Agents read these from the directory they are working in, so a stale one
+  // misleads exactly like a stale root one — and the headline promise is about
+  // these files, not just the root copy. Dedup is by path, not basename: two
+  // packages may each legitimately ship their own AGENTS.md.
+  const agentNames = new Set(cfg.agentDocs.map((n) => n.toLowerCase()));
+  const added = new Set(out.map((d) => d.rel.toLowerCase()));
+  const nested = [];
+  for (const [rel, full] of fileIndex ?? buildFileIndex(root)) {
+    const lower = rel.toLowerCase();
+    if (added.has(lower) || ignore.has(lower)) continue;
+    if (!agentNames.has(path.basename(lower))) continue;
+    added.add(lower);
+    nested.push({ rel, full });
+  }
+  nested.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  out.push(...nested);
 
   return out;
 }

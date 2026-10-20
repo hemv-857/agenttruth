@@ -102,3 +102,56 @@ test('docs: a missing directory yields no docs rather than throwing', () => {
   const cfg = { ...loadConfig(dir), docsDir: 'nope' };
   assert.equal(discoverDocs(dir, cfg).length, 1);
 });
+
+// Nested agent instruction files. Agents load these from the directory they
+// work in, so they are part of the promise — and before this, a repo whose
+// only instruction file was nested reported "no docs found" and exited 0.
+
+test('docs: nested agent files are discovered at any depth', () => {
+  const dir = tmpdir({
+    'CLAUDE.md': '# C\n',
+    'src/features/agents/AGENTS.md': '# nested\n',
+    'examples/eve/CLAUDE.md': '@AGENTS.md\n',
+    'node_modules/pkg/AGENTS.md': '# not ours\n',
+    'src/features/agents/NOTES.md': '# not an agent file\n',
+  });
+  const found = discoverDocs(dir, loadConfig(dir));
+  assert.deepEqual(found.map((d) => d.rel).sort(), [
+    'CLAUDE.md',
+    'examples/eve/CLAUDE.md',
+    'src/features/agents/AGENTS.md',
+  ]);
+});
+
+test('docs: two packages each shipping AGENTS.md are both kept', () => {
+  const dir = tmpdir({ 'a/AGENTS.md': '# a\n', 'b/AGENTS.md': '# b\n' });
+  const found = discoverDocs(dir, loadConfig(dir));
+  assert.deepEqual(found.map((d) => d.rel), ['a/AGENTS.md', 'b/AGENTS.md']);
+});
+
+test('docs: ignore honours nested paths', () => {
+  const dir = tmpdir({ 'a/AGENTS.md': '# a\n', 'b/AGENTS.md': '# b\n' });
+  const cfg = { ...loadConfig(dir), ignore: ['a/agents.md'] };
+  assert.deepEqual(discoverDocs(dir, cfg).map((d) => d.rel), ['b/AGENTS.md']);
+});
+
+test('docs: a nested agent file is checked even with no root doc', () => {
+  // Before nested discovery this printed "no README/CLAUDE/AGENTS docs found"
+  // and exited 0 having checked nothing.
+  const dir = tmpdir({
+    'src/x/AGENTS.md': 'See `config/policy.json` at startup.\n',
+  });
+  const r = run(['--dir', dir, '--json']);
+  assert.equal(r.status, 1);
+  const parsed = JSON.parse(r.out);
+  assert.equal(parsed.docs, 1);
+  assert.equal(parsed.findings[0].file, 'src/x/AGENTS.md');
+});
+
+test('docs: --changed recognizes a touched nested AGENTS.md as a doc', () => {
+  const cfg = loadConfig('/root');
+  assert.equal(isDocPath('src/x/AGENTS.md', cfg), true);
+  assert.equal(isDocPath('src/X/agents.md', cfg), true);
+  assert.equal(isDocPath('src/x/AGENTS.mdx', cfg), false);
+  assert.equal(isDocPath('src/x/NOTES.md', cfg), false);
+});

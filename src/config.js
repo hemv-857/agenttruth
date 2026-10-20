@@ -17,6 +17,11 @@ const DEFAULTS = {
     'GEMINI.md', '.cursorrules', '.windsurfrules',
   ],
   docsDir: 'docs',
+  // Only these names are discovered at any depth, because that is how agents
+  // actually load them (Claude Code walks up from cwd, Codex reads ./AGENTS.md
+  // in the folder being edited). Recursing for README/CONTRIBUTING too would
+  // pick up a README per package.
+  agentDocs: ['CLAUDE.md', 'AGENTS.md', 'GEMINI.md'],
   checks: ['numeric-claim', 'missing-file', 'broken-link', 'missing-command'],
   ignore: [],
   // A claim must be within this fraction of the real counter to count as a
@@ -27,6 +32,9 @@ const DEFAULTS = {
 function validate(cfg, source) {
   if (cfg.docs !== undefined && !Array.isArray(cfg.docs)) {
     throw new Error(`${source}: "docs" must be an array of paths`);
+  }
+  if (cfg.agentDocs !== undefined && !Array.isArray(cfg.agentDocs)) {
+    throw new Error(`${source}: "agentDocs" must be an array of file names`);
   }
   if (cfg.checks !== undefined) {
     const known = new Set(['numeric-claim', 'missing-file', 'broken-link', 'missing-command']);

@@ -154,11 +154,14 @@ Fix what you can, then re-baseline. Fingerprints ignore line numbers, so unrelat
 {
   "docs": ["README.md", "CLAUDE.md", "AGENTS.md"],
   "docsDir": "docs",
+  "agentDocs": ["CLAUDE.md", "AGENTS.md", "GEMINI.md"],
   "checks": ["numeric-claim", "missing-file", "broken-link", "missing-command"],
   "ignore": ["CHANGELOG.md"],
   "driftTolerance": 0.25
 }
 ```
+
+Files in `agentDocs` are discovered at any depth, because that is how agents load them — Claude Code walks up from the directory it is working in, Codex reads `AGENTS.md` in the folder being edited, so a stale `src/features/agents/AGENTS.md` misleads exactly like a stale root one. Every other doc is read from the root and `docs/` only: recursing for `README.md` would pick up a README per package.
 
 ## MCP
 

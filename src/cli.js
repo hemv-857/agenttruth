@@ -90,7 +90,7 @@ Checks
   missing-command docs run \`make test\` but there's no Makefile
 
 Config (optional)
-  agenttruth.config.json  { docs, docsDir, checks, ignore, driftTolerance }
+  agenttruth.config.json  { docs, docsDir, agentDocs, checks, ignore, driftTolerance }
 
 Baseline
   .agenttruth-baseline.json  suppresses known findings so you can adopt
@@ -110,9 +110,9 @@ MCP
   agenttruth-mcp           stdio server exposing the same checks to agents
 `;
 
-function collectDocs(root, explicit, cfg) {
+function collectDocs(root, explicit, cfg, fileIndex) {
   if (explicit.length) return explicit.map((f) => resolveDocArg(root, f));
-  return discoverDocs(root, cfg).map((d) => d.full);
+  return discoverDocs(root, cfg, fileIndex).map((d) => d.full);
 }
 
 function readSources(root, fileIndex) {
@@ -191,7 +191,7 @@ function main() {
       }
     }
   }
-  let docs = collectDocs(opts.dir, opts.files, cfg);
+  let docs = collectDocs(opts.dir, opts.files, cfg, fileIndex);
   if (onlyDocs) docs = docs.filter((d) => onlyDocs.has(path.relative(opts.dir, d)));
   if (docs.length === 0) {
     const msg = 'agenttruth: no README/CLAUDE/AGENTS docs found — nothing to check\n';
