@@ -58,6 +58,12 @@ test('mcp: initialize returns protocol and server info', async () => {
   ]);
   assert.equal(r.id, 1);
   assert.equal(r.result.serverInfo.name, 'agenttruth');
+  // Must track package.json — the previous hardcoded literal sat at 0.6.0
+  // for four releases.
+  assert.equal(
+    r.result.serverInfo.version,
+    JSON.parse(fs.readFileSync(path.join(MCP, '..', '..', 'package.json'), 'utf8')).version
+  );
   assert.ok(r.result.protocolVersion);
   assert.ok(r.result.capabilities.tools);
 });

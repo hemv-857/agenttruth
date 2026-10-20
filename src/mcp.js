@@ -18,6 +18,11 @@ import { planFixes, applyFixes } from './fix.js';
 
 const PROTOCOL_VERSION = '2025-06-18';
 
+// Derived, not hardcoded: a literal went stale at 0.6.0 for four releases.
+const VERSION = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
+
 function analyze(root) {
   const cfg = loadConfig(root);
   const fileIndex = buildFileIndex(root);
@@ -143,7 +148,7 @@ function handle(msg) {
       return reply({
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: 'agenttruth', version: '0.6.0' },
+        serverInfo: { name: 'agenttruth', version: VERSION },
       });
 
     case 'tools/list':
