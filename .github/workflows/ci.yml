@@ -18,3 +18,45 @@ jobs:
       - run: npm test
       # dogfood: agenttruth must pass on its own README
       - run: node bin/agenttruth.js --dir .
+
+  # The action is the documented install path, so it gets exercised as an
+  # action — real node20 runner, real inputs, real exit-code propagation —
+  # rather than assumed to work because the CLI does.
+  action-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-save .
+      - name: fixtures
+        run: |
+          mkdir -p "$RUNNER_TEMP/drift" "$RUNNER_TEMP/clean"
+          echo 'Load `config/policy.json` at startup.' > "$RUNNER_TEMP/drift/README.md"
+          echo '# Clean
+
+          Docs match the code.' > "$RUNNER_TEMP/clean/README.md"
+      - name: clean repo passes
+        uses: ./action
+        with:
+          dir: ${{ runner.temp }}/clean
+          fail-on: error
+      - id: drift
+        name: drifting repo must fail
+        continue-on-error: true
+        uses: ./action
+        with:
+          dir: ${{ runner.temp }}/drift
+          fail-on: error
+      - name: assert the action failed on a provable finding
+        if: steps.drift.outcome != 'failure'
+        run: |
+          echo "::error::agenttruth action exited 0 on a stale doc — CI would have passed"
+          exit 1
+      - name: assert annotations are emitted for the PR diff
+        run: |
+          out=$(node bin/agenttruth.js --dir "$RUNNER_TEMP/drift" --format github)
+          echo "$out"
+          grep -q '^::error file=README.md,line=1,title=missing-file::' <<<"$out" \
+            || { echo "::error::no workflow-command annotation produced"; exit 1; }
