@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 // Docs name files: `AppStore.swift`, `harness.swift`, `build_release.sh`
 // Verify each named file exists somewhere in the repo, with the right extension.
@@ -35,6 +36,38 @@ const ARTIFACT_HINT = new RegExp(
   'i'
 );
 
+// A markdown link is one claim about its TARGET. broken-link owns whether a
+// relative target resolves, and a link into ANOTHER repository describes that
+// repo's files — flagging its label here produced false positives on docs
+// that cite sibling repos (buzz's solo-mobile-contract.md links every filename
+// to block/buzz-app). But a code-host link into THIS repo still claims the
+// label names a file here, which is how babel's `pluginsConfig.json` typo is
+// caught. Ownership is decided by git remote origin; with no origin we cannot
+// prove the link is ours, so we skip rather than risk a false positive.
+const CODE_HOST_LINK = /https?:\/\/(?:www\.)?(github\.com|gitlab\.[a-z0-9.-]+|bitbucket\.org|codeberg\.org)\/([^/\s]+)\/([^/\s)?#]+)/i;
+const MARKDOWN_LINK = /\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+const originMemo = new Map();
+
+function originOf(repoRoot) {
+  if (originMemo.has(repoRoot)) return originMemo.get(repoRoot);
+  let id = null;
+  try {
+    const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const m = url.match(/(?:https?:\/\/|git@)([^/:]+)[:/]+([^/]+)\/([^/]+?)(?:\.git)?\s*$/);
+    if (m) id = `${m[1].toLowerCase()}/${m[2].toLowerCase()}/${m[3].toLowerCase()}`;
+  } catch { /* not a git checkout: identity unknowable */ }
+  originMemo.set(repoRoot, id);
+  return id;
+}
+
+function codeHostId(href) {
+  const m = href.match(CODE_HOST_LINK);
+  if (!m) return null;
+  return `${m[1].toLowerCase()}/${m[2].toLowerCase()}/${m[3].replace(/\.git$/i, '').toLowerCase()}`;
+}
+
 export function checkFileReferences(file, text, repoRoot, fileIndex) {
   const findings = [];
   const lines = text.split('\n');
@@ -48,9 +81,27 @@ export function checkFileReferences(file, text, repoRoot, fileIndex) {
     // Skip submodules: their files exist but aren't in this checkout.
     if (/^Submodule:|\.gitmodules/.test(lineText)) return;
 
-    // Strip URLs before scanning so href/src/badge text can never be read as a
-// repo file. Only real URL forms are removed — a bare `foo.sh` is a file.
-const scannable = lineText.replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, '  ');
+    // Code-host citations on this line decide whose files we are looking at.
+    // A line citing another repository describes THAT repo's files — buzzing's
+    // solo-mobile-contract.md links every filename to block/buzz-app — and with
+    // no origin we cannot prove a citation is ours, so both cases skip the line.
+    const cited = [...lineText.matchAll(/https?:\/\/[^\s)\]>"']+/gi)]
+      .map((u) => codeHostId(u[0]))
+      .filter(Boolean);
+    if (cited.length && (originOf(repoRoot) === null || cited.some((id) => id !== originOf(repoRoot)))) {
+      return;
+    }
+
+    // Strip every markdown link; broken-link owns whether a relative target
+    // resolves, and a bare URL must never read as a repo file. The exception:
+    // a code-host link into THIS repo still claims its label names a file here
+    // — that is what catches babel's `pluginsConfig.json` typo label.
+    const scannable = lineText
+      .replace(MARKDOWN_LINK, (full, label, target) => {
+        const id = codeHostId(target);
+        return id && id === originOf(repoRoot) ? ` ${label} ` : ' ';
+      })
+      .replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, ' ');
 
     const refs = scannable.matchAll(
       /(?<![\w.-])(?:[\w.-]+[\\/])*([A-Za-z0-9_.-]+\.(?:swift|ts|tsx|js|mjs|py|rs|go|rb|java|kt|c|h|cpp|cs|php|sh|json|yml|yaml|toml|sql))(?![\w])/g
