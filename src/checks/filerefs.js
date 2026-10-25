@@ -78,9 +78,16 @@ function codeHostId(href) {
   return `${m[1].toLowerCase()}/${m[2].toLowerCase()}/${m[3].replace(/\.git$/i, '').toLowerCase()}`;
 }
 
-// Extensions the repo actually contains. A doc naming a language the repo has
-// none of is citing someone else's source (buzz, a Rust project, quotes
-// Kubernetes `kubelet/container/helpers.go`); it cannot be drift.
+// Extensions the repo actually contains. A doc naming a source language the
+// repo has none of is citing someone else's code (buzz, a Rust project, quotes
+// Kubernetes `kubelet/container/helpers.go`); it cannot be drift. Config and
+// data names are exempt from this rule so a young repo still answers for the
+// files its docs promise.
+const SOURCE_EXT = new Set([
+  '.swift', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.py', '.rs', '.go', '.rb',
+  '.java', '.kt', '.c', '.h', '.cpp', '.cc', '.hpp', '.cs', '.php', '.sh',
+  '.bash', '.zsh',
+]);
 const extSets = new WeakMap();
 function extSetOf(fileIndex) {
   let set = extSets.get(fileIndex);
@@ -179,8 +186,12 @@ export function checkFileReferences(file, text, repoRoot, fileIndex) {
       if (USER_ARTIFACT.test(base)) continue;
       if (CONFIG_ARTIFACT.test(base)) continue;
       if (ARTIFACT_HINT.test(scannable)) continue;
-      // A language the repo has none of is being cited, not claimed.
-      if (fileIndex && !extSetOf(fileIndex).has(path.extname(m[1]).toLowerCase())) continue;
+      // A source language the repo has none of is being cited, not claimed.
+      if (
+        fileIndex &&
+        SOURCE_EXT.has(path.extname(m[1]).toLowerCase()) &&
+        !extSetOf(fileIndex).has(path.extname(m[1]).toLowerCase())
+      ) continue;
 
       // The doc named a directory too, so check that exact path. The file
       // index skips dotfiles by design (`.vscode/settings.example.json` is
