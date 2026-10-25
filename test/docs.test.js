@@ -140,6 +140,7 @@ test('docs: a nested agent file is checked even with no root doc', () => {
   // and exited 0 having checked nothing.
   const dir = tmpdir({
     'src/x/AGENTS.md': 'See `config/policy.json` at startup.\n',
+    'src/x/other.json': '{}\n',
   });
   const r = run(['--dir', dir, '--json']);
   assert.equal(r.status, 1);

@@ -6,7 +6,9 @@ const NOUNS =
   'check|assert|test|provider|agent|model|example|sample|file|command|option|flag|skill|rule|line|migrat\\w*|endpoint|table|column|step|chapter|slide|item|entry|node|plugin|hook|template|preset|channel|message|event|task|job|run|benchmark|loc|kloc|catalog';
 const CLAIM = new RegExp(
   // The noun must stand alone: "299 checks" is a claim, "256 test-results/" is a path.
-  "(?<![\\\\w$/{}-])" + `(${MAGNIFIERS})[\\s-]+(?![\\d])(${NOUNS})(?:e?s)?(?![\\w-])`,
+  // The lookbehind must be \w, not the two-character class [\\w]: with a double
+  // escape, "1200 lines" reads as the claim "200 lines".
+  "(?<![\\w$/{}-])" + `(${MAGNIFIERS})[\\s-]+(?![\\d])(${NOUNS})(?:e?s)?(?![\\w-])`,
   'gi'
 );
 

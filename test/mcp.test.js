@@ -142,7 +142,7 @@ test('mcp: list_agent_docs names the files it inspects', async () => {
 });
 
 test('mcp: nested agent files are listed and checked', async () => {
-  const dir = tmpdir({ 'src/x/AGENTS.md': 'See `config/policy.json` at startup.\n' });
+  const dir = tmpdir({ 'src/x/AGENTS.md': 'See `config/policy.json` at startup.\n', 'src/x/other.json': '{}\n' });
   const [listed, checked] = await rpc(dir, [
     { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_agent_docs', arguments: { dir } } },
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'check_drift', arguments: { dir } } },

@@ -77,7 +77,10 @@ test('precision: the destination of "copy X into Y" is created by the reader', (
 });
 
 test('precision: a genuinely absent file reference is still reported', () => {
-  const dir = tmpdir({ 'CONTRIBUTING.md': 'Run `scripts/deploy.json` to configure.\n' });
+  const dir = tmpdir({
+    'CONTRIBUTING.md': 'Run `scripts/deploy.json` to configure.\n',
+    'scripts/other.json': '{}\n',
+  });
   const f = fileRefs(dir, 'CONTRIBUTING.md');
   assert.equal(f.length, 1);
   assert.equal(f[0].rule, 'missing-file');
@@ -116,7 +119,7 @@ test('precision: bare filenames on a line citing another repo are that repo\'s',
   assert.equal(fileRefs(dir, 'docs/solo.md').length, 0);
   // Prove the URL is what silenced it, not the fixture being vacuous.
   const bare = gitRepo(
-    { 'docs/solo.md': 'Its test is `channel-writes.test.ts`.\n' },
+    { 'docs/solo.md': 'Its test is `channel-writes.test.ts`.\n', 'src/other.test.ts': '' },
     'https://github.com/block/buzz.git'
   );
   assert.equal(fileRefs(bare, 'docs/solo.md').length, 1);
@@ -146,6 +149,7 @@ test('precision: a self-repo citation on the line does not silence bare refs', (
       'README.md':
         'See https://github.com/hemv-857/agenttruth/blob/main/docs/x.md ' +
         'then edit `missing-config.json`.\n',
+      'other.json': '{}\n',
     },
     'https://github.com/hemv-857/agenttruth.git'
   );
@@ -162,4 +166,119 @@ test('precision: an unverifiable origin silences code-host lines entirely', () =
       'and `also-gone.ts`.\n',
   });
   assert.equal(fileRefs(dir, 'README.md').length, 0);
+});
+
+// Second corpus pass: 18 findings across 16 repos (10 JS/TS + 6 Python/Go/Rust)
+// were spot-checked line by line. Fifteen were describing files that belong to
+// someone else — the user's machine, another project, the compiler, or an HTTP
+// route — which is the same false positive class as a link label, so it is
+// answered the same way: only claims about this tree may be reported.
+
+test('precision: a home-directory path is the reader\'s file, not the repo\'s', () => {
+  // agent-browser: `plugin add` writes `~/.agent-browser/config.json`.
+  const dir = tmpdir({
+    'README.md': 'Plugins are configured in `~/.agent-browser/config.json` (or `--config`).\n',
+    'src/cli.ts': 'x\n',
+  });
+  assert.equal(fileRefs(dir, 'README.md').length, 0);
+});
+
+test('precision: a config file the reader or admin creates is not shipped', () => {
+  // codex: "Admins can set ... in `requirements.toml`".
+  const dir = tmpdir({
+    'docs/config.md': 'Admins can set `allow_managed_hooks_only` in `requirements.toml`.\n',
+    'Cargo.toml': '[package]\n',
+  });
+  assert.equal(fileRefs(dir, 'docs/config.md').length, 0);
+});
+
+test('precision: "project-level" config names the reader\'s file', () => {
+  // agent-browser: "your project-level `agent-browser.json` contains ...".
+  const dir = tmpdir({
+    'README.md': 'If your project-level `agent-browser.json` has paths, gitignore it.\n',
+    'src/app.ts': 'x\n',
+  });
+  assert.equal(fileRefs(dir, 'README.md').length, 0);
+});
+
+test('precision: an HTTP route in a table is not a repo path', () => {
+  // buzz: | GET | `/.well-known/nostr.json` | NIP-05 identity |
+  const dir = tmpdir({
+    'ARCHITECTURE.md': '| GET | `/.well-known/nostr.json` | NIP-05 identity |\n',
+    'src/lib.rs': 'x\n',
+  });
+  assert.equal(fileRefs(dir, 'ARCHITECTURE.md').length, 0);
+});
+
+test('precision: an elided path cites another project\'s source', () => {
+  // buzz: (`org.eclipse.jgit/.../dfs/DfsRefDatabase.java`)
+  const dir = tmpdir({
+    'docs/design.md': 'JGit reduces refs to CAS (`org.eclipse.jgit/.../dfs/DfsRefDatabase.java`).\n',
+    'src/lib.rs': 'x\n',
+  });
+  assert.equal(fileRefs(dir, 'docs/design.md').length, 0);
+});
+
+test('precision: a compiler system header in a stack trace is not a repo file', () => {
+  // buzz: ././/include/c++/12/bits/stl_vector.h:1123: Assertion failed.
+  const dir = tmpdir({
+    'docs/trouble.md': '././/include/c++/12/bits/stl_vector.h:1123: Assertion failed\n',
+    'src/lib.rs': 'x\n',
+  });
+  assert.equal(fileRefs(dir, 'docs/trouble.md').length, 0);
+});
+
+test('precision: a language the repo has none of is cited, not claimed', () => {
+  // buzz (Rust): `kubelet/container/helpers.go` from Kubernetes.
+  const dir = tmpdir({
+    'docs/remote.md': 'A missing Secret self-heals (`kubelet/container/helpers.go`).\n',
+    'src/lib.rs': 'x\n',
+    'Cargo.toml': '[package]\n',
+  });
+  assert.equal(fileRefs(dir, 'docs/remote.md').length, 0);
+  // ...but a repo that does contain .go files still answers for its paths.
+  const withGo = tmpdir({
+    'docs/remote.md': 'See `kubelet/container/helpers.go`.\n',
+    'src/main.go': 'package main\n',
+  });
+  assert.equal(fileRefs(withGo, 'docs/remote.md').length, 1);
+});
+
+test('precision: a bolded foreign project name silences its paragraph', () => {
+  // buzz: "**`mattn/git-remote-s3`** uses a `latest.json` pointer ..." —
+  // the filename sits on the wrapped next line.
+  const dir = tmpdir({
+    'docs/design.md':
+      '- **`mattn/git-remote-s3`** uses a\n  `latest.json` pointer with `If-Match`.\n',
+    'package.json': '{}\n',
+  });
+  assert.equal(fileRefs(dir, 'docs/design.md').length, 0);
+});
+
+test('precision: a plain backticked dir pair is not a foreign project name', () => {
+  // babel: `packages/babel-plugin-syntax-jsx` is a path in THIS repo and must
+  // not silence the `pluginsConfig.json` typo later in the paragraph.
+  const dir = gitRepo(
+    {
+      'CONTRIBUTING.md':
+        '- Copy `packages/babel-plugin-syntax-jsx`.\n' +
+        '- Add it to [`pluginsConfig.json`]' +
+        '(https://github.com/babel/babel/blob/master/scripts/pluginConfig.json).\n',
+      'packages/babel-plugin-syntax-jsx/index.js': '',
+      'scripts/pluginConfig.json': '{}\n',
+    },
+    'https://github.com/babel/babel.git'
+  );
+  const f = fileRefs(dir, 'CONTRIBUTING.md');
+  assert.equal(f.length, 1);
+  assert.match(f[0].message, /pluginsConfig\.json/);
+});
+
+test('precision: fenced samples name the reader\'s runtime paths', () => {
+  // gin: c.File("local/file.go") inside a ```go block.
+  const dir = tmpdir({
+    'docs/doc.md': '```go\nrouter.GET("/f", func(c *gin.Context) {\n  c.File("local/file.go")\n})\n```\n',
+    'main.go': 'package main\n',
+  });
+  assert.equal(fileRefs(dir, 'docs/doc.md').length, 0);
 });

@@ -25,10 +25,20 @@ const SUBMODULE_PREFIXES = new Set(['opensrc', 'third_party', 'thirdparty', 'ven
 const USER_ARTIFACT = new RegExp(
   '^(my|your|example|sample|demo|tmp|temp|local|out|output|dist|build|result|results|data|dump|export|snapshot|snapshots|cache|scratch|test-results?|node_modules|coverage|ci-|custom|\\.|_)'
 );
+
+// Config files are created by whoever runs the tool (codex's `requirements.toml`
+// is written by an admin, agent-browser's `config.json` by the user), so a doc
+// naming one says nothing about what the repo ships. A repo that DOES ship one
+// is cleared by the basename lookup below before this matters.
+const CONFIG_ARTIFACT = /^(?:requirements?|config|settings|preferences|options|defaults)\.(?:toml|json|jsonc|ya?ml|ini|conf)$/i;
+
 const ARTIFACT_HINT = new RegExp(
   "you(?:'ll| will|r)?\\s+(?:create|write|save|generate|produce)" +
     '|create (?:a|an|your|the)|generated (?:by|at)|output (?:file|dir)' +
     '|will be (?:created|written|produced)|placeholder' +
+    // "your project-level `agent-browser.json`", "auto-discovered config files"
+    // — docs describing where the reader's own config may live.
+    '|(?:user|project)-level|auto-discovered' +
     // "copy `.vscode/settings.example.json` into `.vscode/settings.json`" —
     // the destination does not exist yet by construction. The gap spans the
     // source filename, which itself contains dots.
@@ -68,13 +78,39 @@ function codeHostId(href) {
   return `${m[1].toLowerCase()}/${m[2].toLowerCase()}/${m[3].replace(/\.git$/i, '').toLowerCase()}`;
 }
 
+// Extensions the repo actually contains. A doc naming a language the repo has
+// none of is citing someone else's source (buzz, a Rust project, quotes
+// Kubernetes `kubelet/container/helpers.go`); it cannot be drift.
+const extSets = new WeakMap();
+function extSetOf(fileIndex) {
+  let set = extSets.get(fileIndex);
+  if (!set) {
+    set = new Set();
+    for (const f of fileIndex.values()) set.add(path.extname(f).toLowerCase());
+    extSets.set(fileIndex, set);
+  }
+  return set;
+}
+
 export function checkFileReferences(file, text, repoRoot, fileIndex) {
   const findings = [];
   const lines = text.split('\n');
+  const ourSlug = (originOf(repoRoot) ?? '').split('/').slice(-2).join('/').toLowerCase();
+  // A paragraph that names another project (`mattn/git-remote-s3`) describes
+  // that project's files; the citation may sit a wrapped line above the file.
+  let paraForeign = false;
+  // Fenced blocks are samples and command output, not claims about the tree:
+  // `c.File("local/file.go")` names a path the reader's app supplies.
+  let inFence = false;
 
   lines.forEach((lineText, idx) => {
-    // Skip fenced code blocks (architecture trees are real claims, code samples are not).
-    if (/^\s*```/.test(lineText)) return;
+    if (/^\s*```/.test(lineText)) {
+      inFence = !inFence;
+      paraForeign = false;
+      return;
+    }
+    if (inFence) return;
+    if (!lineText.trim()) paraForeign = false;
     // Skip lines that are purely markup — badge <img>/<a href> URLs, raw HTML.
     // `skills.sh` inside an href is a website, not a file reference.
     const isHtml = /^\s*</.test(lineText);
@@ -103,6 +139,18 @@ export function checkFileReferences(file, text, repoRoot, fileIndex) {
       })
       .replace(/\b[a-z][\w+.-]*:\/\/\S+/gi, ' ');
 
+    // "**`mattn/git-remote-s3`** uses a `latest.json` pointer" — a bolded
+    // owner/repo with no extension names another project, and files in that
+    // paragraph belong to it. Plain backticked pairs are just paths here
+    // (`packages/babel-plugin-syntax-jsx`), so they must not trigger this.
+    paraForeign ||= [...scannable.matchAll(/\*\*\s*`([\w.-]+)\/([\w.-]+)`\s*\*\*/g)].some(
+      ([, a, b]) =>
+        !b.includes('.') &&
+        !a.startsWith('.') &&
+        `${a}/${b}`.toLowerCase() !== ourSlug
+    );
+    if (paraForeign) return;
+
     const refs = scannable.matchAll(
       /(?<![\w.-])(?:[\w.-]+[\\/])*([A-Za-z0-9_.-]+\.(?:swift|ts|tsx|js|mjs|py|rs|go|rb|java|kt|c|h|cpp|cs|php|sh|json|yml|yaml|toml|sql))(?![\w])/g
     );
@@ -117,10 +165,22 @@ export function checkFileReferences(file, text, repoRoot, fileIndex) {
       if (!CODE_EXT.includes(path.extname(m[1]))) continue;
       if (isHtml) continue;
       if (isInstruction) continue;
+      // Root-absolute path: an HTTP route (`/.well-known/nostr.json`) or a
+      // filesystem path the reader supplies — never a repo-relative file.
+      if (m.index > 0 && scannable[m.index - 1] === '/') continue;
+      // `org.eclipse.jgit/.../dfs/DfsRefDatabase.java` — an elided path cites
+      // another project's source and cannot be verified here.
+      if (/\/\.\.\.\/|\/…\//.test(m[0])) continue;
+      // C/C++ system headers (`include/c++/12/bits/stl_vector.h`) are compiler
+      // files, not repo files.
+      if (/\binclude\/(?:c\+\+|c)\//.test(scannable)) continue;
       // `my-auth.json`, `example.json`, `out/result.json` — files the reader
       // creates, not files the repo ships. Referencing them is correct.
       if (USER_ARTIFACT.test(base)) continue;
+      if (CONFIG_ARTIFACT.test(base)) continue;
       if (ARTIFACT_HINT.test(scannable)) continue;
+      // A language the repo has none of is being cited, not claimed.
+      if (fileIndex && !extSetOf(fileIndex).has(path.extname(m[1]).toLowerCase())) continue;
 
       // The doc named a directory too, so check that exact path. The file
       // index skips dotfiles by design (`.vscode/settings.example.json` is
@@ -148,7 +208,7 @@ export function checkFileReferences(file, text, repoRoot, fileIndex) {
       //   --messages /tmp/msgs.json    ./agent-browser.json    @input.json
       const at = scannable.indexOf(base);
       const before = scannable.slice(0, at).replace(/[`'"\s]+$/, '');
-      if (/(?:--\S*|@\s*|\/tmp\/|\.\/|\.\.\/|\$\{?\w+[}:]*\/?)$/.test(before)) continue;
+      if (/(?:--\S*|@\s*|\/tmp\/|~[^/\s]*\/|\.\/|\.\.\/|\$\{?\w+[}:]*\/?)$/.test(before)) continue;
       // "writes `./x.json`", "creates `x.json`" — produced at runtime.
       if (/\b(?:writes?|creates?|generates?|emits?|saves?|outputs?|produces?)\b[^.]{0,40}$/i.test(before)) continue;
 

@@ -74,7 +74,7 @@ test('filerefs: clean when every named file exists', () => {
 });
 
 test('filerefs: flags a file that does not exist', () => {
-  const dir = tmpdir({ 'README.md': 'Edit `src/Ghost.swift` to change it.\n' });
+  const dir = tmpdir({ 'README.md': 'Edit `src/Ghost.swift` to change it.\n', 'src/Other.swift': 'let x = 1\n' });
   const idx = buildFileIndex(dir);
   const r = checkFileReferences('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir, idx);
   assert.equal(r.findings.length, 1);
@@ -171,4 +171,12 @@ test('numeric-claim: excludes the helper declaration from the count', () => {
   const r = checkNumericClaims('README.md', doc, [src]);
   assert.equal(r.findings.length, 1);
   assert.match(r.findings[0].message, /266/);
+});
+
+test('numeric-claim: a longer number is not re-read from its tail', () => {
+  // buzz: "**1200 lines/file**" once matched the claim "200 lines" because the
+  // lookbehind was written with a double escape and never saw the digit.
+  const src = Array.from({ length: 191 }, () => 'check(1);').join('\n');
+  const doc = '**1200 lines/file**, enforced with the other limits by the gate.\n';
+  assert.equal(checkNumericClaims('README.md', doc, [src]).findings.length, 0);
 });

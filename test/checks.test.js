@@ -100,6 +100,47 @@ test('links: accepts an anchor that matches a slugified heading', () => {
   assert.equal(r.findings.length, 0);
 });
 
+test('links: a repo-root link to an existing file resolves', () => {
+  // gin: [benchmarks](/BENCHMARKS.md) — `/` is the repo root on GitHub, not
+  // the filesystem root.
+  const dir = tmpdir({ 'README.md': '[bench](/BENCHMARKS.md)\n', 'BENCHMARKS.md': '# B\n' });
+  const r = checkLinks('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir);
+  assert.equal(r.findings.length, 0);
+});
+
+test('links: a repo-root link to a missing file is still flagged', () => {
+  const dir = tmpdir({ 'README.md': '[bench](/BENCHMARKS.md)\n' });
+  const r = checkLinks('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir);
+  assert.equal(r.findings.length, 1);
+});
+
+test('links: an extensionless target with a fragment is a docs-site route', () => {
+  // fastapi: [installation guide](tutorial/#install-fastapi) — the README is
+  // also the docs site home, where `tutorial/` is a page, not a repo dir.
+  const dir = tmpdir({ 'README.md': '[guide](tutorial/#install-fastapi)\n' });
+  const r = checkLinks('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir);
+  assert.equal(r.findings.length, 0);
+});
+
+test('links: accepts an anchor on an HTML heading', () => {
+  // ripgrep/FAQ.md: <h3 name="complete"> answered from README (FAQ.md#complete).
+  const dir = tmpdir({
+    'README.md': '[shell completions](FAQ.md#complete)\n',
+    'FAQ.md': '<h3 name="complete">\n\ntext\n',
+  });
+  const r = checkLinks('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir);
+  assert.equal(r.findings.length, 0);
+});
+
+test('links: accepts an explicit {#anchor}', () => {
+  const dir = tmpdir({
+    'README.md': '[jump](./guide.md#posix4ever)\n',
+    'guide.md': '## Can it replace grep? {#posix4ever}\n',
+  });
+  const r = checkLinks('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir);
+  assert.equal(r.findings.length, 0);
+});
+
 test('links: skips fenced code blocks', () => {
   const dir = tmpdir({ 'README.md': '```md\n[gone](./nope.md)\n```\n' });
   const r = checkLinks('README.md', fs.readFileSync(path.join(dir, 'README.md'), 'utf8'), dir);

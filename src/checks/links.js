@@ -53,10 +53,19 @@ export function checkLinks(file, text, repoRoot) {
         const [pathPart, anchor] = target.split('#');
         if (pathPart === '') continue;
         const decoded = safeDecode(pathPart);
-        const resolved = path.resolve(path.dirname(path.join(repoRoot, file)), decoded);
+        // A leading `/` is repo-root-relative on GitHub; resolving it as an
+        // absolute filesystem path would look outside the repo (gin's
+        // `/BENCHMARKS.md` exists at the repo root).
+        const resolved = pathPart.startsWith('/')
+          ? path.join(repoRoot, decoded.replace(/^\/+/, ''))
+          : path.resolve(path.dirname(path.join(repoRoot, file)), decoded);
         const rel = path.relative(repoRoot, resolved);
 
         if (!fs.existsSync(resolved)) {
+          // `[installation guide](tutorial/#install-fastapi)` — an extensionless
+          // target with a fragment addresses a page of the rendered docs site,
+          // not a file in this tree (fastapi's README doubles as its docs home).
+          if (anchor && !/\.[A-Za-z0-9]+$/.test(pathPart.replace(/\/+$/, ''))) continue;
           findings.push({
             file,
             line: idx + 1,
@@ -123,8 +132,12 @@ function slugExists(md, anchor) {
   for (const m of md.matchAll(/^#{1,6}\s+(.+)$/gm)) {
     if (slugify(m[1]) === want) return true;
   }
-  // Explicit anchors: <a id="..."> or <a name="...">
-  for (const m of md.matchAll(/<a\s+(?:id|name)=["']([^"']+)["']/gi)) {
+  // Explicit anchors: <a id="...">, <a name="...">, <h3 name="..."> (ripgrep's
+  // FAQ names HTML headings), and {#custom-anchor} in markdown.
+  for (const m of md.matchAll(/<[a-z][\w-]*\s+[^>]*?(?:id|name)=["']([^"']+)["']/gi)) {
+    if (m[1].toLowerCase() === want) return true;
+  }
+  for (const m of md.matchAll(/\{#([\w-]+)\}/g)) {
     if (m[1].toLowerCase() === want) return true;
   }
   return false;
