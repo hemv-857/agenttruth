@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { toPosix } from '../paths.js';
 
 // A relative link in a README that 404s is drift the same way a wrong count
 // is: the docs describe a repo that no longer exists in that shape.
@@ -59,7 +60,7 @@ export function checkLinks(file, text, repoRoot) {
         const resolved = pathPart.startsWith('/')
           ? path.join(repoRoot, decoded.replace(/^\/+/, ''))
           : path.resolve(path.dirname(path.join(repoRoot, file)), decoded);
-        const rel = path.relative(repoRoot, resolved);
+        const rel = toPosix(path.relative(repoRoot, resolved));
 
         if (!fs.existsSync(resolved)) {
           // `[installation guide](tutorial/#install-fastapi)` — an extensionless

@@ -19,7 +19,9 @@ import { buildFileIndex } from './checks/filerefs.js';
 // The optional fileIndex is the caller's already-built file index: nested
 // agent files are found from it so the tree is walked once.
 export function discoverDocs(root, cfg, fileIndex) {
-  const ignore = new Set(cfg.ignore.map((i) => i.toLowerCase()));
+  // Config files are written with `/`; Windows users may type `\\`, and the
+  // tree keys below are always posix, so both must compare equal.
+  const ignore = new Set(cfg.ignore.map((i) => i.replace(/\\/g, '/').toLowerCase()));
   const out = [];
   const seen = new Set();
 

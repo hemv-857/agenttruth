@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { toPosix } from '../paths.js';
 
 // Docs name files: `AppStore.swift`, `harness.swift`, `build_release.sh`
 // Verify each named file exists somewhere in the repo, with the right extension.
@@ -253,7 +254,7 @@ export function buildFileIndex(repoRoot) {
         if (SKIP.has(e.name)) continue;
         walk(full);
       } else {
-        index.set(path.relative(repoRoot, full), full);
+        index.set(toPosix(path.relative(repoRoot, full)), full);
       }
     }
   })(repoRoot);

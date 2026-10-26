@@ -11,6 +11,7 @@ import { loadConfig } from './config.js';
 import { loadBaseline, saveBaseline, partition } from './baseline.js';
 import { planFixes, applyFixes } from './fix.js';
 import { parseDisables, applyDisables } from './ignores.js';
+import { toPosix } from './paths.js';
 import { shouldFail, isValidThreshold, summarize, severityOf } from './severity.js';
 import { toSarif } from './sarif.js';
 import { toWorkflowCommands } from './github.js';
@@ -192,7 +193,7 @@ function main() {
     }
   }
   let docs = collectDocs(opts.dir, opts.files, cfg, fileIndex);
-  if (onlyDocs) docs = docs.filter((d) => onlyDocs.has(path.relative(opts.dir, d)));
+  if (onlyDocs) docs = docs.filter((d) => onlyDocs.has(toPosix(path.relative(opts.dir, d))));
   if (docs.length === 0) {
     const msg = 'agenttruth: no README/CLAUDE/AGENTS docs found — nothing to check\n';
     if (opts.json) process.stdout.write(JSON.stringify({ findings: [], docs: 0 }) + '\n');
@@ -210,7 +211,7 @@ function main() {
     } catch {
       continue;
     }
-    const rel = path.relative(opts.dir, doc);
+    const rel = toPosix(path.relative(opts.dir, doc));
     if (cfg.checks.includes('numeric-claim')) {
       results.push(
         checkNumericClaims(rel, text, sources, opts.dir, { tolerance: cfg.driftTolerance })
@@ -231,8 +232,8 @@ function main() {
   for (const doc of docs) {
     try {
       disablesByFile.set(
-        path.relative(opts.dir, doc),
-        parseDisables(path.relative(opts.dir, doc), fs.readFileSync(doc, 'utf8'))
+        toPosix(path.relative(opts.dir, doc)),
+        parseDisables(toPosix(path.relative(opts.dir, doc)), fs.readFileSync(doc, 'utf8'))
       );
     } catch {}
   }
