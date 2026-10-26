@@ -210,6 +210,33 @@ test('changed: cli skips cleanly when no doc changed', () => {
   assert.ok(r.code === 0 || r.code === 1);
   assert.doesNotMatch(r.err ?? '', /Error|ENOENT/);
 });
+test('changed: only the docs this branch touched are checked', () => {
+  const dir = tmpdir({
+    'README.md': 'Load `config/other.json` at startup.\n',
+    'src/x/AGENTS.md': '# Agent\n',
+    'src/app.ts': 'x\n',
+  });
+  const git = (...a) =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...a], {
+      cwd: dir,
+      stdio: 'ignore',
+    });
+  git('init', '-q');
+  git('add', '-A');
+  git('commit', '-qm', 'base');
+  fs.appendFileSync(path.join(dir, 'src/x/AGENTS.md'), 'Edit `missing-config.json`.\n');
+  git('add', '-A');
+  git('commit', '-qm', 'doc change');
+
+  const r = run(dir, ['--changed', 'HEAD~1', '--json']);
+  assert.equal(r.code, 1);
+  const parsed = JSON.parse(r.out);
+  // README drifts too, but this branch did not touch it.
+  assert.equal(parsed.docs, 1);
+  assert.equal(parsed.findings.length, 1);
+  assert.equal(parsed.findings[0].file, 'src/x/AGENTS.md');
+});
+
 // ---------- counter cache ----------
 // A 5,800-file repo took 4m34s before memoisation and 10s after. The cache is
 // keyed by repo root (or by sources identity when there is no root) so two

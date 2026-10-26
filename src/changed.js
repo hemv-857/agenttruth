@@ -24,7 +24,8 @@ export function isDocPath(rel, cfg) {
   // disk (`Readme.md`) while config lists `README.md`, and on a case-sensitive
   // runner an exact match would skip the one doc this branch actually touched.
   const lower = rel.toLowerCase();
-  if (cfg.ignore.some((i) => i.toLowerCase() === lower)) return false;
+  // Config is written with `/`; Windows users may type `\\`.
+  if (cfg.ignore.some((i) => i.replace(/\\/g, '/').toLowerCase() === lower)) return false;
   if (cfg.docs.some((d) => d.toLowerCase() === lower)) return true;
   if (lower.startsWith(cfg.docsDir.toLowerCase() + '/') && lower.endsWith('.md')) return true;
   // Nested agent files, mirroring what discovery recurses for.
